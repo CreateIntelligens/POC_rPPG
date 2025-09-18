@@ -1,0 +1,10 @@
+vitallens
+gradio
+numpy
+opencv-python
+matplotlib
+pandas
+pillow
+python-dotenv
+# 為 Python 3.13 兼容性添加
+Pillow>=9.0.0
