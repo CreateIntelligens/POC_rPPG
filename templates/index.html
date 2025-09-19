@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="hero">
+        <h1>🩺 {{ title }}</h1>
+        <p>支援影片上傳與網路攝影機分析，利用 VitalLens API 估算心率、呼吸率與相關波形。</p>
+        <p class="api-status">{{ api_key_status }}</p>
+    </header>
+
+    <main class="container">
+        <section class="panel" id="video-upload">
+            <h2>📁 影片檔案分析</h2>
+            <form id="file-form" enctype="multipart/form-data">
+                <label for="video-input">上傳影片檔案</label>
+                <input id="video-input" name="video" type="file" accept="video/*" required>
+
+                <label for="file-method">選擇檢測方法</label>
+                <select id="file-method" name="method" required>
+                    {% for option in methods %}
+                    <option value="{{ option }}" {% if option == default_method %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="file-api-key">API Key（使用 VITALLENS 時必填）</label>
+                <input id="file-api-key" name="api_key" type="password" placeholder="請輸入 VitalLens API Key">
+
+                <button type="submit">🔍 開始分析</button>
+            </form>
+            <div class="status" id="file-status">等待上傳影片...</div>
+            <img id="file-plot" class="plot" alt="分析圖表" style="display: none;">
+            <pre id="file-result" class="result"></pre>
+        </section>
+
+        <section class="panel" id="webcam-analysis">
+            <h2>📹 網路攝影機分析</h2>
+            <form id="webcam-form">
+                <label for="webcam-method">選擇檢測方法</label>
+                <select id="webcam-method" name="method" required>
+                    {% for option in methods %}
+                    <option value="{{ option }}" {% if option == default_method %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="webcam-api-key">API Key（使用 VITALLENS 時必填）</label>
+                <input id="webcam-api-key" name="api_key" type="password" placeholder="請輸入 VitalLens API Key">
+
+                <label for="recording-duration">錄影時間（秒）</label>
+                <input id="recording-duration" name="duration" type="number" min="5" max="60" value="15" step="5">
+
+                <div class="button-row">
+                    <button type="button" id="start-recording">🔴 開始錄影</button>
+                    <button type="button" id="stop-recording" class="secondary" disabled>⏹️ 停止錄影</button>
+                </div>
+            </form>
+            <div class="status" id="webcam-status">準備開始錄影...</div>
+            <video id="webcam-preview" class="webcam-preview" autoplay muted playsinline></video>
+            <img id="webcam-plot" class="plot" alt="網路攝影機分析圖表" style="display: none;">
+            <pre id="webcam-result" class="result"></pre>
+        </section>
+
+        <section class="panel info">
+            <h2>📋 使用說明</h2>
+            <h3>影片檔案分析</h3>
+            <ol>
+                <li>上傳影片（建議 5-30 秒，確保臉部清晰可見）。</li>
+                <li>依需求選擇檢測方法。VITALLENS 需要有效 API Key。</li>
+                <li>點擊「開始分析」，等待結果與圖表。</li>
+            </ol>
+            <h3>網路攝影機分析</h3>
+            <ol>
+                <li>授權瀏覽器存取攝影機，畫面會顯示於預覽區。</li>
+                <li>設定錄影時間（5-60 秒）並保持面向攝影機。</li>
+                <li>錄影完成後系統會自動上傳並分析，結果將出現在下方。</li>
+            </ol>
+            <p>⚠️ 本工具僅供健康參考，若有健康疑慮請諮詢專業醫師。</p>
+        </section>
+    </main>
+
+    <footer>
+        <small>© {{ title }} | 支援免費與 VITALLENS API 方法</small>
+    </footer>
+
+    <script>
+        const fileForm = document.getElementById('file-form');
+        const fileStatus = document.getElementById('file-status');
+        const fileResult = document.getElementById('file-result');
+        const filePlot = document.getElementById('file-plot');
+
+        const webcamForm = document.getElementById('webcam-form');
+        const startRecordingBtn = document.getElementById('start-recording');
+        const stopRecordingBtn = document.getElementById('stop-recording');
+        const webcamStatus = document.getElementById('webcam-status');
+        const webcamResult = document.getElementById('webcam-result');
+        const webcamPlot = document.getElementById('webcam-plot');
+        const webcamPreview = document.getElementById('webcam-preview');
+
+        let mediaStream = null;
+        let mediaRecorder = null;
+        let recordingChunks = [];
+        let recordingTimeout = null;
+        let recordingContext = null;
+
+        fileForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData(fileForm);
+            fileStatus.textContent = '影片處理中，請稍候...';
+            fileResult.textContent = '';
+            filePlot.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/process-video', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || '處理失敗，請稍後再試');
+                }
+
+                fileStatus.textContent = data.status || '處理完成！';
+                fileResult.textContent = data.result_text || '沒有檢測到結果';
+
+                if (data.plot_image) {
+                    filePlot.src = `data:image/png;base64,${data.plot_image}`;
+                    filePlot.style.display = 'block';
+                }
+            } catch (error) {
+                fileStatus.textContent = error.message || '處理時發生錯誤';
+            }
+        });
+
+        startRecordingBtn.addEventListener('click', async () => {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                webcamStatus.textContent = '此瀏覽器不支援攝影機存取，請改用最新版 Chrome 或 Edge。';
+                return;
+            }
+
+            const duration = parseInt(document.getElementById('recording-duration').value, 10) || 15;
+            if (duration < 5 || duration > 60) {
+                webcamStatus.textContent = '錄影時間需介於 5 至 60 秒';
+                return;
+            }
+
+            recordingContext = {
+                method: document.getElementById('webcam-method').value,
+                apiKey: document.getElementById('webcam-api-key').value,
+                duration
+            };
+
+            webcamStatus.textContent = '正在啟動攝影機...';
+            webcamResult.textContent = '';
+            webcamPlot.style.display = 'none';
+
+            try {
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(track => track.stop());
+                }
+
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                webcamPreview.srcObject = mediaStream;
+                webcamPreview.style.display = 'block';
+
+                recordingChunks = [];
+                // 嘗試使用更相容的格式
+                let options = { mimeType: 'video/mp4' };
+                if (!MediaRecorder.isTypeSupported('video/mp4')) {
+                    options = { mimeType: 'video/webm;codecs=vp9' };
+                    if (!MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+                        options = { mimeType: 'video/webm' };
+                    }
+                }
+                mediaRecorder = new MediaRecorder(mediaStream, options);
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data && event.data.size > 0) {
+                        recordingChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    stopRecordingBtn.disabled = true;
+                    clearTimeout(recordingTimeout);
+
+                    try {
+                        if (!recordingChunks.length) {
+                            webcamStatus.textContent = '沒有錄製到影片，請再試一次';
+                            return;
+                        }
+
+                        webcamStatus.textContent = '影片上傳與分析中...';
+                        const blob = new Blob(recordingChunks, { type: options.mimeType });
+                        await uploadRecordedVideo(blob, recordingContext, options.mimeType);
+                    } catch (error) {
+                        webcamStatus.textContent = error.message || '處理錄影時發生錯誤';
+                    } finally {
+                        cleanupMedia();
+                        startRecordingBtn.disabled = false;
+                        recordingChunks = [];
+                        recordingContext = null;
+                    }
+                };
+
+                mediaRecorder.start();
+                startRecordingBtn.disabled = true;
+                stopRecordingBtn.disabled = false;
+                webcamStatus.textContent = `錄影中（${duration} 秒）...`;
+
+                recordingTimeout = setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        webcamStatus.textContent = '錄影完成，正在處理...';
+                        mediaRecorder.stop();
+                    }
+                }, duration * 1000);
+
+            } catch (error) {
+                webcamStatus.textContent = error.message || '無法啟動攝影機，請確認已允許權限';
+                cleanupMedia();
+                startRecordingBtn.disabled = false;
+                stopRecordingBtn.disabled = true;
+            }
+        });
+
+        stopRecordingBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                webcamStatus.textContent = '錄影已停止，正在處理...';
+                mediaRecorder.stop();
+            }
+        });
+
+        async function uploadRecordedVideo(blob, context, mimeType = 'video/webm') {
+            const formData = new FormData();
+            const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+            formData.append('video', blob, `webcam_${Date.now()}.${extension}`);
+            formData.append('method', context.method);
+            formData.append('api_key', context.apiKey || '');
+
+            const response = await fetch('/api/process-video', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || '分析失敗，請重試');
+            }
+
+            webcamStatus.textContent = data.status || '處理完成！';
+            webcamResult.textContent = data.result_text || '沒有檢測到結果';
+
+            if (data.plot_image) {
+                webcamPlot.src = `data:image/png;base64,${data.plot_image}`;
+                webcamPlot.style.display = 'block';
+            }
+        }
+
+        function cleanupMedia() {
+            if (recordingTimeout) {
+                clearTimeout(recordingTimeout);
+                recordingTimeout = null;
+            }
+
+            if (mediaRecorder) {
+                if (mediaRecorder.state !== 'inactive') {
+                    try {
+                        mediaRecorder.stop();
+                    } catch (err) {
+                        console.warn('停止錄影時發生錯誤', err);
+                    }
+                }
+                mediaRecorder.ondataavailable = null;
+                mediaRecorder.onstop = null;
+                mediaRecorder = null;
+            }
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            webcamPreview.srcObject = null;
+            webcamPreview.style.display = 'none';
+            stopRecordingBtn.disabled = true;
+        }
+    </script>
+</body>
+</html>

@@ -1,10 +1,27 @@
-vitallens
-gradio
-numpy
-opencv-python
-matplotlib
-pandas
-pillow
-python-dotenv
+# =============================================================================
+# requirements.txt - VitalLens 專案依賴配置
+# 列出運行此應用程式所需的所有 Python 套件及其版本要求
+# =============================================================================
+
+# 核心依賴
+vitallens                    # 生命體徵檢測核心函式庫
+fastapi                      # 高性能 Web API 框架
+uvicorn[standard]           # ASGI 伺服器，支援標準功能
+jinja2                      # 模板引擎，用於 HTML 渲染
+python-multipart           # FastAPI 多部分表單數據處理
+
+# 科學計算和圖像處理
+numpy                       # 數值計算基礎函式庫
+opencv-python              # OpenCV 圖像處理函式庫
+scipy                      # 科學計算函式庫
+matplotlib                # 數據可視化函式庫
+pandas                    # 數據分析函式庫
+
+# 系統和工具
+psutil                     # 系統和進程監控
+pillow                    # Python 圖像處理函式庫
+python-dotenv            # 環境變數載入
+
+# 版本兼容性要求
 # 為 Python 3.13 兼容性添加
-Pillow>=9.0.0
+Pillow>=9.0.0            # Pillow 最低版本要求

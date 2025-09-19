@@ -1,4 +1,10 @@
+# ai docs
+.claude
+
+# Environment and secrets
 .env
+
+# Python
 .venv
 __pycache__
 *.pyc
@@ -9,5 +15,14 @@ __pycache__
 *.pywz
 *.pyzw
 *.pyzwz
-vitallens_venv
-vitallens_py39_venv
+
+# SSL certificates (auto-generated)
+nginx/ssl/
+
+# Data and analysis results
+data/
+
+# VitalLens temp files
+vitallens_*.json
+
+
