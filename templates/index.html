@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ title }}</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>">
 </head>
 <body>
     <header class="hero">
@@ -17,8 +18,55 @@
         <section class="panel" id="video-upload">
             <h2>📁 影片檔案分析</h2>
             <form id="file-form" enctype="multipart/form-data">
-                <label for="video-input">上傳影片檔案</label>
-                <input id="video-input" name="video" type="file" accept="video/*" required>
+
+                <!-- 進階拖拽上傳區域 -->
+                <div id="drop-zone" class="drop-zone enhanced">
+                    <div class="drop-zone-content">
+                        <div class="drop-icon">🎬</div>
+                        <p class="drop-text">拖拽影片檔案到此處</p>
+                        <p class="drop-subtext">或點擊選擇檔案</p>
+                        <div class="upload-button-container">
+                            <button type="button" class="drop-button" onclick="document.getElementById('video-input').click()">
+                                <span class="button-icon">📁</span> 選擇檔案
+                            </button>
+                        </div>
+                        <p class="drop-hint">支援 MP4, AVI, MOV, MKV, WebM 格式，最大 100MB</p>
+                        <div class="format-icons">
+                            <span class="format-tag">MP4</span>
+                            <span class="format-tag">AVI</span>
+                            <span class="format-tag">MOV</span>
+                            <span class="format-tag">WebM</span>
+                        </div>
+                    </div>
+                    <div id="file-preview" class="file-preview" style="display: none;">
+                        <div class="file-info">
+                            <div class="file-thumbnail">🎥</div>
+                            <div class="file-details">
+                                <span class="file-name"></span>
+                                <span class="file-size"></span>
+                                <div class="file-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 0%"></div>
+                                    </div>
+                                    <span class="progress-text">準備中...</span>
+                                </div>
+                            </div>
+                            <button type="button" class="remove-file" onclick="clearFileSelection()">
+                                <span>✕</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="upload-progress" class="upload-progress" style="display: none;">
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill"></div>
+                            </div>
+                            <span class="progress-percentage">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <input id="video-input" name="video" type="file" accept="video/*" required style="display: none;">
 
                 <label for="file-method">選擇檢測方法</label>
                 <select id="file-method" name="method" required>
@@ -27,14 +75,15 @@
                     {% endfor %}
                 </select>
 
+
                 <label for="file-api-key">API Key（使用 VITALLENS 時必填）</label>
                 <input id="file-api-key" name="api_key" type="password" placeholder="請輸入 VitalLens API Key">
 
                 <button type="submit">🔍 開始分析</button>
             </form>
             <div class="status" id="file-status">等待上傳影片...</div>
-            <img id="file-plot" class="plot" alt="分析圖表" style="display: none;">
-            <pre id="file-result" class="result"></pre>
+            <div id="file-results" class="results-grid" aria-live="polite"></div>
+            <img id="file-plot" class="plot" alt="影片分析圖表" style="display: none;">
         </section>
 
         <section class="panel" id="webcam-analysis">
@@ -59,7 +108,21 @@
                 </div>
             </form>
             <div class="status" id="webcam-status">準備開始錄影...</div>
-            <video id="webcam-preview" class="webcam-preview" autoplay muted playsinline></video>
+            <div id="webcam-results" class="results-grid" aria-live="polite"></div>
+            <div class="video-container">
+                <video id="webcam-preview" class="webcam-preview" autoplay muted playsinline></video>
+                <canvas id="face-overlay" class="face-overlay"></canvas>
+                <div class="face-detection-info" id="face-detection-info" style="display: none;">
+                    <div class="detection-indicator">
+                        <span class="indicator-light"></span>
+                        <span class="indicator-text">偵測到人臉</span>
+                    </div>
+                    <!-- <div class="heart-rate-preview" id="heart-rate-preview">
+                        <span class="hr-label">預估心率:</span>
+                        <span class="hr-value" id="hr-value">-- BPM</span>
+                    </div> -->
+                </div>
+            </div>
             <img id="webcam-plot" class="plot" alt="網路攝影機分析圖表" style="display: none;">
             <pre id="webcam-result" class="result"></pre>
         </section>
@@ -87,37 +150,627 @@
     </footer>
 
     <script>
+        // DOM 元素
         const fileForm = document.getElementById('file-form');
         const fileStatus = document.getElementById('file-status');
-        const fileResult = document.getElementById('file-result');
-        const filePlot = document.getElementById('file-plot');
+        const fileResults = document.getElementById('file-results');
+        const dropZone = document.getElementById('drop-zone');
+        const videoInput = document.getElementById('video-input');
+        const filePreview = document.getElementById('file-preview');
+        const uploadProgress = document.getElementById('upload-progress');
 
         const webcamForm = document.getElementById('webcam-form');
         const startRecordingBtn = document.getElementById('start-recording');
         const stopRecordingBtn = document.getElementById('stop-recording');
         const webcamStatus = document.getElementById('webcam-status');
-        const webcamResult = document.getElementById('webcam-result');
-        const webcamPlot = document.getElementById('webcam-plot');
+        const webcamResults = document.getElementById('webcam-results');
         const webcamPreview = document.getElementById('webcam-preview');
+        const faceOverlay = document.getElementById('face-overlay');
+        const faceDetectionInfo = document.getElementById('face-detection-info');
+        const hrValue = document.getElementById('hr-value');
 
         let mediaStream = null;
+        let selectedFile = null;
+        let dragCounter = 0;
+        let faceOverlayAnimation = null;
+        let heartRateSimulation = null;
+        let statusPoller = null;
+        let statusSocket = null;
+        let isDetectingFace = false;
+        let isRecordingActive = false;
         let mediaRecorder = null;
-        let recordingChunks = [];
-        let recordingTimeout = null;
-        let recordingContext = null;
+        let recordedChunks = [];
 
-        fileForm.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const formData = new FormData(fileForm);
-            fileStatus.textContent = '影片處理中，請稍候...';
-            fileResult.textContent = '';
-            filePlot.style.display = 'none';
+        // 初始化拖拽上傳功能
+        function initializeDragAndDrop() {
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, preventDefaults, false);
+                document.body.addEventListener(eventName, preventDefaults, false);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, unhighlight, false);
+            });
+
+            dropZone.addEventListener('drop', handleDrop, false);
+            videoInput.addEventListener('change', handleFileSelect, false);
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            function highlight(e) {
+                if (e.type === 'dragenter') {
+                    dragCounter++;
+                }
+                dropZone.classList.add('drag-over');
+            }
+
+            function unhighlight(e) {
+                if (e.type === 'dragleave') {
+                    dragCounter--;
+                    if (dragCounter === 0) {
+                        dropZone.classList.remove('drag-over');
+                    }
+                } else if (e.type === 'drop') {
+                    dragCounter = 0;
+                    dropZone.classList.remove('drag-over');
+                }
+            }
+
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                handleFiles(files);
+            }
+
+            function handleFileSelect(e) {
+                const files = e.target.files;
+                handleFiles(files);
+            }
+
+            function handleFiles(files) {
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (validateFile(file)) {
+                        selectedFile = file;
+                        showFilePreview(file);
+                    }
+                }
+            }
+
+            function validateFile(file) {
+                const allowedTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/quicktime', 'video/mkv', 'video/webm'];
+                if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp4|avi|mov|mkv|webm)$/i)) {
+                    alert('不支援的檔案格式。請選擇 MP4, AVI, MOV, MKV 或 WebM 格式的影片。');
+                    return false;
+                }
+
+                const maxSize = 100 * 1024 * 1024;
+                if (file.size > maxSize) {
+                    alert('檔案過大。請選擇小於 100MB 的影片檔案。');
+                    return false;
+                }
+
+                return true;
+            }
+
+            function showFilePreview(file) {
+                const fileName = filePreview.querySelector('.file-name');
+                const fileSize = filePreview.querySelector('.file-size');
+                const progressText = filePreview.querySelector('.progress-text');
+                const progressFill = filePreview.querySelector('.progress-fill');
+
+                fileName.textContent = file.name;
+                fileSize.textContent = formatFileSize(file.size);
+                progressText.textContent = '準備中...';
+                progressFill.style.width = '0%';
+
+                filePreview.style.display = 'block';
+
+                let progress = 0;
+                const interval = setInterval(() => {
+                    progress += Math.random() * 30;
+                    if (progress >= 100) {
+                        progress = 100;
+                        progressText.textContent = '準備完成';
+                        clearInterval(interval);
+                    } else {
+                        progressText.textContent = `檢查中... ${Math.round(progress)}%`;
+                    }
+                    progressFill.style.width = progress + '%';
+                }, 200);
+            }
+
+            function formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+        }
+
+        function updateWebcamStatus(message) {
+            if (webcamStatus) {
+                webcamStatus.textContent = message;
+            }
+        }
+
+        function clearWebcamResults() {
+            if (webcamResult) {
+                webcamResult.textContent = '';
+            }
+            if (webcamPlot) {
+                webcamPlot.style.display = 'none';
+                webcamPlot.removeAttribute('src');
+            }
+        }
+
+        async function ensureWebcamPreview() {
+            if (mediaStream || isRecordingActive) {
+                return;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                updateWebcamStatus('瀏覽器不支援攝影機功能，請使用最新版本的 Chrome、Edge 或 Firefox。');
+                throw new Error('MediaDevices API not available');
+            }
 
             try {
-                const response = await fetch('/api/process-video', {
-                    method: 'POST',
-                    body: formData
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 1280, height: 720 },
+                    audio: false
                 });
+                webcamPreview.srcObject = mediaStream;
+                await webcamPreview.play();
+                adjustOverlaySize();
+                startFaceDetectionPreview();
+                updateWebcamStatus('攝影機已啟動，請保持臉部在畫面中央。');
+            } catch (error) {
+                mediaStream = null;
+                updateWebcamStatus('無法存取攝影機，請確認裝置可用並授予權限。');
+                throw error;
+            }
+        }
+
+        function releaseWebcamPreview() {
+            stopFaceDetectionPreview();
+            if (faceDetectionInfo) {
+                faceDetectionInfo.style.display = 'none';
+            }
+            if (webcamPreview) {
+                webcamPreview.pause();
+                webcamPreview.srcObject = null;
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach((track) => track.stop());
+                mediaStream = null;
+            }
+        }
+
+        async function resumeWebcamPreview() {
+            if (!mediaStream && !isRecordingActive) {
+                try {
+                    await ensureWebcamPreview();
+                } catch (error) {
+                    console.warn('Unable to resume webcam preview', error);
+                }
+            }
+        }
+
+        function adjustOverlaySize() {
+            if (!faceOverlay || !webcamPreview) return;
+
+            const width = webcamPreview.videoWidth || webcamPreview.clientWidth || 640;
+            const height = webcamPreview.videoHeight || webcamPreview.clientHeight || 480;
+
+            if (width && height) {
+                faceOverlay.width = width;
+                faceOverlay.height = height;
+            }
+        }
+
+        function startFaceDetectionPreview() {
+            if (!faceOverlay || faceOverlayAnimation) {
+                return;
+            }
+
+            const ctx = faceOverlay.getContext('2d');
+            if (!ctx) {
+                return;
+            }
+            faceDetectionInfo.style.display = 'flex';
+            isDetectingFace = true;
+
+            const draw = () => {
+                adjustOverlaySize();
+
+                const width = faceOverlay.width;
+                const height = faceOverlay.height;
+
+                ctx.clearRect(0, 0, width, height);
+
+                if (!width || !height) {
+                    faceOverlayAnimation = requestAnimationFrame(draw);
+                    return;
+                }
+
+                const boxWidth = width * 0.45;
+                const boxHeight = height * 0.6;
+                const startX = (width - boxWidth) / 2;
+                const startY = (height - boxHeight) / 2;
+
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.85)';
+                ctx.strokeRect(startX, startY, boxWidth, boxHeight);
+
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.7)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(startX + boxWidth * 0.35, startY + boxHeight * 0.35, boxWidth * 0.05, 0, Math.PI * 2);
+                ctx.arc(startX + boxWidth * 0.65, startY + boxHeight * 0.35, boxWidth * 0.05, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.beginPath();
+                const mouthY = startY + boxHeight * 0.72;
+                const mouthCurve = boxWidth * 0.05 * Math.sin(Date.now() / 450);
+                ctx.moveTo(startX + boxWidth * 0.3, mouthY);
+                ctx.quadraticCurveTo(
+                    startX + boxWidth * 0.5,
+                    mouthY + mouthCurve,
+                    startX + boxWidth * 0.7,
+                    mouthY
+                );
+                ctx.stroke();
+
+                faceOverlayAnimation = requestAnimationFrame(draw);
+            };
+
+            draw();
+        }
+
+        function stopFaceDetectionPreview() {
+            if (faceOverlayAnimation) {
+                cancelAnimationFrame(faceOverlayAnimation);
+                faceOverlayAnimation = null;
+            }
+            if (!faceOverlay) {
+                return;
+            }
+            const ctx = faceOverlay.getContext('2d');
+            if (ctx) {
+                ctx.clearRect(0, 0, faceOverlay.width, faceOverlay.height);
+            }
+            faceDetectionInfo.style.display = 'none';
+            isDetectingFace = false;
+        }
+
+        // 已註解：假的心率模擬功能
+        // function startHeartRateSimulation() {
+        //     if (heartRateSimulation) {
+        //         return;
+        //     }
+
+        //     let bpm = 78 + Math.random() * 6;
+        //     heartRateSimulation = setInterval(() => {
+        //         bpm += (Math.random() - 0.5) * 4;
+        //         bpm = Math.max(55, Math.min(110, bpm));
+        //         hrValue.textContent = `${Math.round(bpm)} BPM`;
+        //     }, 1500);
+        // }
+
+        // function stopHeartRateSimulation() {
+        //     if (heartRateSimulation) {
+        //         clearInterval(heartRateSimulation);
+        //         heartRateSimulation = null;
+        //     }
+        //     hrValue.textContent = '-- BPM';
+        // }
+
+        function setRecordingState(isRecording) {
+            isRecordingActive = isRecording;
+            startRecordingBtn.disabled = isRecording;
+            stopRecordingBtn.disabled = !isRecording;
+
+            // 已註解：假的心率模擬功能
+            // if (isRecording) {
+            //     startHeartRateSimulation();
+            // } else {
+            //     stopHeartRateSimulation();
+            // }
+        }
+
+        function scheduleStatusPolling() {
+            clearStatusPolling();
+            checkRecordingStatus();
+            statusPoller = setInterval(checkRecordingStatus, 2000);
+        }
+
+        function clearStatusPolling() {
+            if (statusPoller) {
+                clearInterval(statusPoller);
+                statusPoller = null;
+            }
+        }
+
+        function clearWebcamResults() {
+            if (webcamResults) {
+                webcamResults.innerHTML = '';
+            }
+        }
+
+        function displayWebcamResults(data) {
+            if (!webcamResults) return;
+
+            if (data.results && data.results.length > 0) {
+                let resultsHtml = '';
+                data.results.forEach(result => {
+                    resultsHtml += `
+                        <div class="result-item">
+                            <h3>${result.display_name || 'Webcam Recording'}</h3>
+                            <p><strong>狀態:</strong> ${result.status}</p>
+                            ${result.summary ? `<p><strong>摘要:</strong> ${result.summary}</p>` : ''}
+                            ${result.result_text ? `<pre class="result-text">${result.result_text}</pre>` : ''}
+                            ${result.plot_image ? `<img src="data:image/png;base64,${result.plot_image}" class="plot" alt="分析圖表">` : ''}
+                        </div>
+                    `;
+                });
+                webcamResults.innerHTML = resultsHtml;
+            } else {
+                webcamResults.innerHTML = '<p>沒有檢測到結果</p>';
+            }
+        }
+
+        async function startWebcamRecording() {
+            try {
+                await ensureWebcamPreview();
+            } catch (error) {
+                console.error('Failed to initialise webcam preview', error);
+                return;
+            }
+
+            clearWebcamResults();
+
+            const method = document.getElementById('webcam-method').value;
+            const apiKey = document.getElementById('webcam-api-key').value || '';
+            const durationInput = document.getElementById('recording-duration').value;
+            const duration = Number.parseInt(durationInput, 10) || 15;
+
+            setRecordingState(true);
+            updateWebcamStatus(`正在錄影 ${duration} 秒，請保持臉部穩定。`);
+
+            try {
+                // 使用前端 MediaRecorder 錄影
+                const stream = document.getElementById('webcam-preview').srcObject;
+                if (!stream) {
+                    throw new Error('無法取得攝影機串流');
+                }
+
+                recordedChunks = [];
+
+                // 嘗試使用 MP4 格式，如果不支援則使用 WebM
+                let mimeType = 'video/mp4';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/webm;codecs=vp8,opus';
+                }
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    try {
+                        // 建立影片 blob
+                        const videoBlob = new Blob(recordedChunks, { type: mimeType });
+
+                        updateWebcamStatus('錄影完成，正在上傳並處理...');
+
+                        // 上傳並處理影片
+                        const formData = new FormData();
+                        const extension = mimeType.includes('mp4') ? '.mp4' : '.webm';
+                        formData.append('video', videoBlob, `webcam-recording${extension}`);
+                        formData.append('method', method);
+                        formData.append('api_key', apiKey);
+
+                        const response = await fetch('/api/process-video', {
+                            method: 'POST',
+                            body: formData,
+                        });
+
+                        const result = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(result.detail || '影片處理失敗');
+                        }
+
+                        // 顯示結果
+                        displayWebcamResults(result);
+                        updateWebcamStatus('處理完成！');
+
+                    } catch (error) {
+                        console.error('Processing error:', error);
+                        updateWebcamStatus(error.message || '處理影片時發生錯誤');
+                    } finally {
+                        setRecordingState(false);
+                        recordedChunks = [];
+                        mediaRecorder = null;
+                    }
+                };
+
+                mediaRecorder.start();
+
+                // 設定錄影時間
+                setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        mediaRecorder.stop();
+                    }
+                }, duration * 1000);
+
+            } catch (error) {
+                console.error('Unable to start webcam recording', error);
+                setRecordingState(false);
+                updateWebcamStatus(error.message || '啟動攝影機錄影時發生錯誤');
+            }
+        }
+
+        async function stopWebcamRecording() {
+            try {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    updateWebcamStatus('正在停止錄影...');
+                } else {
+                    updateWebcamStatus('沒有進行中的錄影');
+                    setRecordingState(false);
+                }
+            } catch (error) {
+                console.error('Unable to stop webcam recording', error);
+                updateWebcamStatus(error.message || '停止攝影機錄影時發生錯誤');
+                setRecordingState(false);
+            }
+        }
+
+        async function checkRecordingStatus() {
+            try {
+                const response = await fetch('/api/webcam/status');
+                if (!response.ok) {
+                    throw new Error('狀態查詢失敗');
+                }
+
+                const payload = await response.json();
+
+                if (payload.message) {
+                    updateWebcamStatus(payload.message);
+                }
+
+                if (payload.state === 'recording') {
+                    setRecordingState(true);
+                    return;
+                }
+
+                if (payload.state === 'completed') {
+                    clearStatusPolling();
+                    setRecordingState(false);
+                    await resumeWebcamPreview();
+
+                    if (payload.result_text) {
+                        webcamResult.textContent = payload.result_text;
+                    }
+
+                    if (payload.plot_image) {
+                        webcamPlot.src = `data:image/png;base64,${payload.plot_image}`;
+                        webcamPlot.style.display = 'block';
+                    } else {
+                        webcamPlot.style.display = 'none';
+                    }
+                    return;
+                }
+
+                if (payload.state === 'idle') {
+                    setRecordingState(false);
+                    await resumeWebcamPreview();
+                }
+            } catch (error) {
+                console.error('查詢攝影機錄影狀態時發生錯誤', error);
+            }
+        }
+
+        function setupWebcamInteractions() {
+            if (!startRecordingBtn || !stopRecordingBtn) {
+                return;
+            }
+
+            startRecordingBtn.addEventListener('click', async (event) => {
+                event.preventDefault();
+                await startWebcamRecording();
+            });
+
+            stopRecordingBtn.addEventListener('click', async (event) => {
+                event.preventDefault();
+                await stopWebcamRecording();
+            });
+
+            webcamPreview.addEventListener('loadedmetadata', () => {
+                adjustOverlaySize();
+                startFaceDetectionPreview();
+            });
+
+            webcamPreview.addEventListener('play', () => {
+                adjustOverlaySize();
+                startFaceDetectionPreview();
+            });
+
+            window.addEventListener('resize', adjustOverlaySize);
+
+            const tryInitialisePreview = () => {
+                if (!mediaStream) {
+                    ensureWebcamPreview().catch((error) => {
+                        console.warn('無法啟動攝影機預覽:', error);
+                        updateWebcamStatus('點擊攝影機畫面以啟動預覽（需要授予攝影機權限）');
+                    });
+                }
+            };
+
+            // 自動啟動攝影機預覽
+            setTimeout(tryInitialisePreview, 500);
+
+            webcamPreview.addEventListener('click', tryInitialisePreview);
+            webcamPreview.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    tryInitialisePreview();
+                }
+            });
+        }
+
+        function connectStatusSocket() {
+            // WebSocket 功能已移除，使用輪詢代替
+            console.log('狀態更新改用輪詢機制');
+        }
+
+        window.addEventListener('beforeunload', () => {
+            clearStatusPolling();
+            releaseWebcamPreview();
+            // stopHeartRateSimulation(); // 已註解：假的心率模擬功能
+        });
+
+        // 清除檔案選擇
+        function clearFileSelection() {
+            selectedFile = null;
+            videoInput.value = '';
+            filePreview.style.display = 'none';
+            uploadProgress.style.display = 'none';
+        }
+
+        // 檔案上傳處理
+        fileForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            if (!selectedFile && !videoInput.files[0]) {
+                alert('請先選擇一個影片檔案');
+                return;
+            }
+
+            const fileToUpload = selectedFile || videoInput.files[0];
+            const formData = new FormData();
+            formData.append('video', fileToUpload);
+            formData.append('method', document.getElementById('file-method').value);
+            formData.append('api_key', document.getElementById('file-api-key').value || '');
+
+            showUploadProgress();
+            fileStatus.textContent = '正在上傳影片...';
+            if (fileResults) fileResults.innerHTML = '';
+
+            try {
+                const response = await uploadWithProgress('/api/process-video', formData);
                 const data = await response.json();
 
                 if (!response.ok) {
@@ -125,169 +778,92 @@
                 }
 
                 fileStatus.textContent = data.status || '處理完成！';
-                fileResult.textContent = data.result_text || '沒有檢測到結果';
 
-                if (data.plot_image) {
-                    filePlot.src = `data:image/png;base64,${data.plot_image}`;
-                    filePlot.style.display = 'block';
+                // 處理新的結果格式
+                if (fileResults && data.results && data.results.length > 0) {
+                    let resultsHtml = '';
+                    data.results.forEach(result => {
+                        resultsHtml += `
+                            <div class="result-item">
+                                <h3>${result.display_name || result.file_name}</h3>
+                                <p><strong>狀態:</strong> ${result.status}</p>
+                                ${result.summary ? `<p><strong>摘要:</strong> ${result.summary}</p>` : ''}
+                                ${result.result_text ? `<pre class="result-text">${result.result_text}</pre>` : ''}
+                                ${result.plot_image ? `<img src="data:image/png;base64,${result.plot_image}" class="plot" alt="分析圖表">` : ''}
+                            </div>
+                        `;
+                    });
+                    fileResults.innerHTML = resultsHtml;
+                } else {
+                    fileResults.innerHTML = '<p>沒有檢測到結果</p>';
                 }
+
+                setTimeout(() => {
+                    uploadProgress.style.display = 'none';
+                }, 2000);
+
             } catch (error) {
                 fileStatus.textContent = error.message || '處理時發生錯誤';
+                uploadProgress.style.display = 'none';
             }
         });
 
-        startRecordingBtn.addEventListener('click', async () => {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                webcamStatus.textContent = '此瀏覽器不支援攝影機存取，請改用最新版 Chrome 或 Edge。';
-                return;
-            }
+        function showUploadProgress() {
+            uploadProgress.style.display = 'block';
+            const progressFill = uploadProgress.querySelector('.progress-fill');
+            const progressPercentage = uploadProgress.querySelector('.progress-percentage');
 
-            const duration = parseInt(document.getElementById('recording-duration').value, 10) || 15;
-            if (duration < 5 || duration > 60) {
-                webcamStatus.textContent = '錄影時間需介於 5 至 60 秒';
-                return;
-            }
-
-            recordingContext = {
-                method: document.getElementById('webcam-method').value,
-                apiKey: document.getElementById('webcam-api-key').value,
-                duration
-            };
-
-            webcamStatus.textContent = '正在啟動攝影機...';
-            webcamResult.textContent = '';
-            webcamPlot.style.display = 'none';
-
-            try {
-                if (mediaStream) {
-                    mediaStream.getTracks().forEach(track => track.stop());
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress >= 90) {
+                    progress = 90;
+                    clearInterval(interval);
                 }
+                progressFill.style.width = progress + '%';
+                progressPercentage.textContent = Math.round(progress) + '%';
+            }, 500);
+        }
 
-                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                webcamPreview.srcObject = mediaStream;
-                webcamPreview.style.display = 'block';
+        async function uploadWithProgress(url, formData) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
 
-                recordingChunks = [];
-                // 嘗試使用更相容的格式
-                let options = { mimeType: 'video/mp4' };
-                if (!MediaRecorder.isTypeSupported('video/mp4')) {
-                    options = { mimeType: 'video/webm;codecs=vp9' };
-                    if (!MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
-                        options = { mimeType: 'video/webm' };
-                    }
-                }
-                mediaRecorder = new MediaRecorder(mediaStream, options);
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        const progressFill = uploadProgress.querySelector('.progress-fill');
+                        const progressPercentage = uploadProgress.querySelector('.progress-percentage');
+                        progressFill.style.width = percentComplete + '%';
+                        progressPercentage.textContent = Math.round(percentComplete) + '%';
 
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data && event.data.size > 0) {
-                        recordingChunks.push(event.data);
-                    }
-                };
-
-                mediaRecorder.onstop = async () => {
-                    stopRecordingBtn.disabled = true;
-                    clearTimeout(recordingTimeout);
-
-                    try {
-                        if (!recordingChunks.length) {
-                            webcamStatus.textContent = '沒有錄製到影片，請再試一次';
-                            return;
+                        if (percentComplete >= 100) {
+                            fileStatus.textContent = '上傳完成，正在分析...';
                         }
-
-                        webcamStatus.textContent = '影片上傳與分析中...';
-                        const blob = new Blob(recordingChunks, { type: options.mimeType });
-                        await uploadRecordedVideo(blob, recordingContext, options.mimeType);
-                    } catch (error) {
-                        webcamStatus.textContent = error.message || '處理錄影時發生錯誤';
-                    } finally {
-                        cleanupMedia();
-                        startRecordingBtn.disabled = false;
-                        recordingChunks = [];
-                        recordingContext = null;
                     }
-                };
+                });
 
-                mediaRecorder.start();
-                startRecordingBtn.disabled = true;
-                stopRecordingBtn.disabled = false;
-                webcamStatus.textContent = `錄影中（${duration} 秒）...`;
+                xhr.addEventListener('load', () => {
+                    resolve({
+                        ok: xhr.status >= 200 && xhr.status < 300,
+                        status: xhr.status,
+                        json: () => Promise.resolve(JSON.parse(xhr.responseText))
+                    });
+                });
 
-                recordingTimeout = setTimeout(() => {
-                    if (mediaRecorder && mediaRecorder.state === 'recording') {
-                        webcamStatus.textContent = '錄影完成，正在處理...';
-                        mediaRecorder.stop();
-                    }
-                }, duration * 1000);
+                xhr.addEventListener('error', () => {
+                    reject(new Error('上傳失敗'));
+                });
 
-            } catch (error) {
-                webcamStatus.textContent = error.message || '無法啟動攝影機，請確認已允許權限';
-                cleanupMedia();
-                startRecordingBtn.disabled = false;
-                stopRecordingBtn.disabled = true;
-            }
-        });
-
-        stopRecordingBtn.addEventListener('click', () => {
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                webcamStatus.textContent = '錄影已停止，正在處理...';
-                mediaRecorder.stop();
-            }
-        });
-
-        async function uploadRecordedVideo(blob, context, mimeType = 'video/webm') {
-            const formData = new FormData();
-            const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
-            formData.append('video', blob, `webcam_${Date.now()}.${extension}`);
-            formData.append('method', context.method);
-            formData.append('api_key', context.apiKey || '');
-
-            const response = await fetch('/api/process-video', {
-                method: 'POST',
-                body: formData
+                xhr.open('POST', url);
+                xhr.send(formData);
             });
-
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.detail || '分析失敗，請重試');
-            }
-
-            webcamStatus.textContent = data.status || '處理完成！';
-            webcamResult.textContent = data.result_text || '沒有檢測到結果';
-
-            if (data.plot_image) {
-                webcamPlot.src = `data:image/png;base64,${data.plot_image}`;
-                webcamPlot.style.display = 'block';
-            }
         }
 
-        function cleanupMedia() {
-            if (recordingTimeout) {
-                clearTimeout(recordingTimeout);
-                recordingTimeout = null;
-            }
-
-            if (mediaRecorder) {
-                if (mediaRecorder.state !== 'inactive') {
-                    try {
-                        mediaRecorder.stop();
-                    } catch (err) {
-                        console.warn('停止錄影時發生錯誤', err);
-                    }
-                }
-                mediaRecorder.ondataavailable = null;
-                mediaRecorder.onstop = null;
-                mediaRecorder = null;
-            }
-
-            if (mediaStream) {
-                mediaStream.getTracks().forEach(track => track.stop());
-                mediaStream = null;
-            }
-
-            webcamPreview.srcObject = null;
-            webcamPreview.style.display = 'none';
-            stopRecordingBtn.disabled = true;
-        }
+        // 初始化
+        initializeDragAndDrop();
+        setupWebcamInteractions();
+        connectStatusSocket();
     </script>
 </body>
 </html>

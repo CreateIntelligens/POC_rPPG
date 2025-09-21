@@ -25,4 +25,17 @@ data/
 # VitalLens temp files
 vitallens_*.json
 
+# Test files and reports
+*_TEST_REPORT.md
+*_INTEGRATION_SPEC.md
+*.mp4
+*.avi
+*.mov
+
+# Pytest cache
+.pytest_cache/
+
+# Logs
+*.log
+
 
