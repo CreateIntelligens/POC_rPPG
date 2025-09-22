@@ -41,7 +41,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm -f /tmp/requirements.txt
 
 # 暴露應用程式端口
-EXPOSE 8894
+EXPOSE ${APP_PORT:-8894}
 
 # 預設啟動命令（可以在 docker-compose 中覆蓋）
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8894"]
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${APP_PORT:-8894}"]

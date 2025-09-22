@@ -1,0 +1,69 @@
+# =============================================================================
+# Nginx HTTPS 反向代理配置模板
+# 此配置定義了安全的 HTTPS 服務器，用於代理 FastAPI 應用程式
+# 支持 WebSocket 連接和靜態文件服務
+# =============================================================================
+
+# 上游服務器定義 -------------------------------------------------------------------
+# 定義 FastAPI 應用程式的上游服務器
+# ${APP_PORT} 會在運行時被環境變數替換
+upstream app {
+    server app:${APP_PORT};
+}
+
+# WebSocket 連接升級映射 -------------------------------------------------------------
+# 處理 HTTP 協議升級為 WebSocket 連接
+map $http_upgrade $connection_upgrade {
+    default upgrade;  # 預設升級為 WebSocket
+    '' close;        # 空值時關閉連接
+}
+
+# HTTPS 服務器配置 ------------------------------------------------------------------
+# 主要 HTTPS 服務器，監聽 443 端口（外部映射到 8894）
+server {
+    listen 443 ssl;           # SSL 端口
+    http2 on;                 # 啟用 HTTP/2 協議
+    server_name _;            # 接受所有域名
+
+    # SSL 憑證配置 -----------------------------------------------------------------
+    ssl_certificate /etc/nginx/ssl/cert.pem;        # SSL 憑證檔案
+    ssl_certificate_key /etc/nginx/ssl/key.pem;     # SSL 私鑰檔案
+
+    # SSL 安全設定 -----------------------------------------------------------------
+    ssl_protocols TLSv1.2 TLSv1.3;                   # 支援的 SSL 協議版本
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;                 # 客戶端優先選擇密碼套件
+    ssl_session_cache shared:SSL:10m;               # SSL 會話快取
+    ssl_session_timeout 10m;                        # SSL 會話超時
+
+    # 安全標頭 ---------------------------------------------------------------------
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;  # HSTS
+    add_header X-Frame-Options DENY;                # 防止點擊劫持
+    add_header X-Content-Type-Options nosniff;      # 防止 MIME 類型混淆
+    add_header X-XSS-Protection "1; mode=block";    # XSS 保護
+
+    # 主應用程式代理配置 -----------------------------------------------------------
+    location / {
+        proxy_pass http://app;                       # 代理到上游 FastAPI 應用
+        proxy_http_version 1.1;                      # HTTP 版本
+        proxy_set_header Host $host;                 # 保留原始主機標頭
+        proxy_set_header X-Real-IP $remote_addr;     # 真實客戶端 IP
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;  # 代理鏈 IP
+        proxy_set_header X-Forwarded-Proto https;    # 協議標頭
+        proxy_set_header X-Forwarded-Port ${EXTERNAL_PORT};  # 外部端口
+        proxy_set_header Upgrade $http_upgrade;      # WebSocket 升級標頭
+        proxy_set_header Connection $connection_upgrade;  # 連接升級
+        proxy_read_timeout 120s;                     # 讀取超時（影片處理需要較長時間）
+        proxy_connect_timeout 60s;                   # 連接超時
+        proxy_send_timeout 60s;                      # 發送超時
+
+        # WebSocket SSL 驗證設定
+        proxy_ssl_verify off;                        # 開發環境關閉 SSL 驗證
+    }
+
+    # 健康檢查端點 -----------------------------------------------------------------
+    location /health {
+        access_log off;                             # 關閉訪問日誌
+        return 200 "healthy\n";                     # 簡單健康檢查響應
+    }
+}
