@@ -1,18 +1,14 @@
 # VitalLens 生命體徵檢測器
 
-基於 [VitalLens Python API](https://github.com/Rouast-Labs/vitallens-python) 的網頁應用程式。
+基於 [VitalLens Python API](https://github.com/Rouast-Labs/vitallens-python) 的 Web 應用程式。
 
-## 功能特色
-- **影片上傳分析**: 支持多種影片格式（MP4, AVI, MOV, MKV, WebM），最大100MB
-- **即時網路攝影機檢測**: 瀏覽器直接錄影分析，無需上傳檔案
-- **多種檢測方法**:
-  - VITALLENS（需要API Key）：商業級精準檢測
-  - POS（免費）：開源光流法檢測
-  - CHROM（免費）：色度法檢測
-  - G（免費）：綠色通道檢測
-- **智慧分析**: 自動生成心率/呼吸率波形圖表和統計分析
-- **即時狀態更新**: WebSocket實時回報處理進度
-- **Docker部署**: 一鍵部署，包含自動SSL證書生成
+## 功能
+
+- 影片上傳分析 (MP4, AVI, MOV, MKV, WebM)
+- 即時網路攝影機檢測
+- 多種檢測方法: VITALLENS, POS, CHROM, G
+- WebSocket 即時狀態更新
+- Docker 容器化部署
 
 ## 🚀 快速開始（Docker部署）
 
@@ -144,15 +140,23 @@ POC_rPPG/
 | CHROM | 免費 | 色度法檢測，適合穩定光照環境 |
 | G | 免費 | 綠色通道檢測，計算效率高 |
 
-## 使用方法
-1. 設定 API Key 到 `.env` 檔案
-2. 運行 `docker-compose up -d`
-3. 訪問 https://localhost:8894
-4. 上傳影片或使用攝影機進行檢測
+## 開發
+
+### 本地運行
+```bash
+pip install -r requirements.txt
+cp .env.example .env  # 設定 VITALLENS_API_KEY
+uvicorn app:app --reload --host 0.0.0.0 --port 8894
+```
+
+### 測試
+```bash
+pytest tests/
+```
 
 ## 技術棧
-- FastAPI + Uvicorn
-- OpenCV + NumPy
-- Matplotlib
-- Docker + Nginx
-- VitalLens API
+
+- **Backend**: FastAPI, Uvicorn, OpenCV, NumPy
+- **Frontend**: HTML5, JavaScript, WebRTC, WebSocket
+- **部署**: Docker, Nginx, SSL
+- **測試**: pytest

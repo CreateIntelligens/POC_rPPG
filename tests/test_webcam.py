@@ -131,7 +131,7 @@ class TestWebcamValidation:
     測試網路攝影機相關參數的驗證邏輯。
     """
 
-    @pytest.mark.parametrize("duration", [5, 10, 15, 30, 60])
+    @pytest.mark.parametrize("duration", [5, 10, 15, 30, 45])
     def test_valid_durations(self, client, duration, mock_opencv_capture):
         """
         測試有效的錄影時間。
@@ -151,7 +151,7 @@ class TestWebcamValidation:
 
         assert response.status_code == 200
 
-    @pytest.mark.parametrize("duration", [-1, 0, 61, 100])
+    @pytest.mark.parametrize("duration", [-1, 0, 46, 61, 100])
     def test_invalid_durations(self, client, duration):
         """
         測試無效的錄影時間。

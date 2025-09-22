@@ -35,7 +35,7 @@
                                 <span class="button-icon">📁</span> 選擇檔案
                             </button>
                         </div>
-                        <p class="drop-hint">支援 MP4, AVI, MOV, MKV, WebM 格式，最大 100MB</p>
+                        <p class="drop-hint">支援 MP4, AVI, MOV, MKV, WebM 格式，最大 50MB / 45 秒</p>
                         <div class="format-icons">
                             <span class="format-tag">MP4</span>
                             <span class="format-tag">AVI</span>
@@ -49,6 +49,7 @@
                             <div class="file-details">
                                 <span class="file-name"></span>
                                 <span class="file-size"></span>
+                                <span class="file-duration"></span>
                                 <div class="file-progress">
                                     <div class="progress-bar">
                                         <div class="progress-fill" style="width: 0%"></div>
@@ -88,7 +89,7 @@
 
                 <button type="submit">🔍 開始分析</button>
             </form>
-            <div class="status" id="file-status">等待上傳影片...</div>
+            <div class="status" id="file-status">請上傳長度不超過 45 秒、大小小於 50MB 的影片。</div>
             <div id="file-results" class="results-grid" aria-live="polite"></div>
             <img id="file-plot" class="plot" alt="影片分析圖表" style="display: none;">
         </section>
@@ -99,24 +100,17 @@
                 <div class="form-field mode-record-only">
                     <label for="webcam-method">錄影檢測方法</label>
                     <select id="webcam-method" name="method" required>
-                        <optgroup label="前端分析 (即時)">
-                            <option value="js-pos">前端快速 (POS)</option>
-                            <option value="js-chrom">前端快速 (CHROM)</option>
-                            <option value="js-vitallens">前端精確 (VitalLens)</option>
-                        </optgroup>
-                        <optgroup label="後端分析 (精確)">
-                            {% for option in methods %}
-                            <option value="{{ option }}" {% if option == default_method %}selected{% endif %}>{{ option }}</option>
-                            {% endfor %}
-                        </optgroup>
+                        {% for option in methods %}
+                        <option value="{{ option }}" {% if option == default_method %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="form-field mode-realtime-only hidden">
                     <label for="realtime-method">即時檢測方法</label>
                     <select id="realtime-method" name="realtime_method">
-                        <option value="js-pos" selected>前端快速 (POS)</option>
-                        <option value="js-chrom">前端快速 (CHROM)</option>
-                        <option value="js-vitallens">前端精確 (VitalLens)</option>
+                        <option value="js-pos" selected>免費 (POS)</option>
+                        <option value="js-chrom">免費 (CHROM)</option>
+                        <option value="js-vitallens">付費 (VitalLens)</option>
                     </select>
                 </div>
                 <div id="webcam-api-key-section" class="form-field hidden">
@@ -225,9 +219,9 @@
         const webcamPlot = document.getElementById('webcam-plot');
         const webcamResult = document.getElementById('webcam-result');
 
-        const MAX_FILE_SIZE_MB = 50;
+        const MAX_FILE_SIZE_MB = {{ max_file_size_mb }};
         const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-        const MAX_UPLOAD_DURATION_SECONDS = 45;
+        const MAX_VIDEO_DURATION_SECONDS = {{ max_video_duration }};
 
         let mediaStream = null;
         let selectedFile = null;
@@ -295,48 +289,107 @@
             function handleDrop(e) {
                 const dt = e.dataTransfer;
                 const files = dt.files;
-                handleFiles(files);
+                handleFiles(files).catch((err) => console.error('檔案處理失敗', err));
             }
 
             function handleFileSelect(e) {
                 const files = e.target.files;
-                handleFiles(files);
+                handleFiles(files).catch((err) => console.error('檔案處理失敗', err));
             }
 
-            function handleFiles(files) {
-                if (files.length > 0) {
-                    const file = files[0];
-                    if (validateFile(file)) {
-                        selectedFile = file;
-                        showFilePreview(file);
+            async function handleFiles(files) {
+                if (!files || files.length === 0) {
+                    return;
+                }
+
+                const file = files[0];
+                const { valid, durationSeconds } = await validateFile(file);
+                if (!valid) {
+                    selectedFile = null;
+                    if (videoInput) {
+                        videoInput.value = '';
                     }
+                    filePreview.style.display = 'none';
+                    return;
+                }
+
+                selectedFile = file;
+                showFilePreview(file, durationSeconds);
+                if (fileStatus) {
+                    const durationText = durationSeconds && Number.isFinite(durationSeconds)
+                        ? `${durationSeconds.toFixed(1)} 秒`
+                        : '未知';
+                    fileStatus.textContent = `影片已載入（長度 ${durationText}，大小 ${formatFileSize(file.size)}）。如需調整請重新選擇。`;
                 }
             }
 
             function validateFile(file) {
-                const allowedTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/quicktime', 'video/mkv', 'video/webm'];
-                if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp4|avi|mov|mkv|webm)$/i)) {
-                    alert('不支援的檔案格式。請選擇 MP4, AVI, MOV, MKV 或 WebM 格式的影片。');
-                    return false;
-                }
+                return new Promise((resolve) => {
+                    let objectUrl = null;
 
-                const maxSize = 100 * 1024 * 1024;
-                if (file.size > maxSize) {
-                    alert('檔案過大。請選擇小於 100MB 的影片檔案。');
-                    return false;
-                }
+                    const reportError = (message) => {
+                        if (objectUrl) {
+                            URL.revokeObjectURL(objectUrl);
+                            objectUrl = null;
+                        }
+                        if (fileStatus) {
+                            fileStatus.textContent = message;
+                        }
+                        window.alert(message);
+                        resolve({ valid: false, durationSeconds: undefined });
+                    };
 
-                return true;
+                    const allowedTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/quicktime', 'video/mkv', 'video/webm'];
+                    if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp4|avi|mov|mkv|webm)$/i)) {
+                        reportError('不支援的檔案格式。請選擇 MP4、AVI、MOV、MKV 或 WebM 格式。');
+                        return;
+                    }
+
+                    if (file.size > MAX_FILE_SIZE_BYTES) {
+                        reportError(`檔案過大。請選擇小於 ${MAX_FILE_SIZE_MB}MB 的影片檔案。`);
+                        return;
+                    }
+
+                    const tempVideo = document.createElement('video');
+                    tempVideo.preload = 'metadata';
+                    objectUrl = URL.createObjectURL(file);
+                    const finalize = (isValid, durationSeconds) => {
+                        URL.revokeObjectURL(objectUrl);
+                        objectUrl = null;
+                        resolve({ valid: isValid, durationSeconds });
+                    };
+
+                    tempVideo.onloadedmetadata = () => {
+                        const durationSeconds = Number(tempVideo.duration);
+                        if (Number.isFinite(durationSeconds) && durationSeconds > MAX_VIDEO_DURATION_SECONDS) {
+                            reportError(`影片長度不可超過 ${MAX_VIDEO_DURATION_SECONDS} 秒。請先裁剪或降低解析度再上傳。`);
+                            return;
+                        }
+                        finalize(true, Number.isFinite(durationSeconds) ? durationSeconds : undefined);
+                    };
+
+                    tempVideo.onerror = () => {
+                        finalize(true, undefined);
+                    };
+
+                    tempVideo.src = objectUrl;
+                });
             }
 
-            function showFilePreview(file) {
+            function showFilePreview(file, durationSeconds) {
                 const fileName = filePreview.querySelector('.file-name');
                 const fileSize = filePreview.querySelector('.file-size');
+                const fileDuration = filePreview.querySelector('.file-duration');
                 const progressText = filePreview.querySelector('.progress-text');
                 const progressFill = filePreview.querySelector('.progress-fill');
 
                 fileName.textContent = file.name;
                 fileSize.textContent = formatFileSize(file.size);
+                if (fileDuration) {
+                    fileDuration.textContent = durationSeconds && Number.isFinite(durationSeconds)
+                        ? `${durationSeconds.toFixed(1)} 秒`
+                        : '長度未知';
+                }
                 progressText.textContent = '準備中...';
                 progressFill.style.width = '0%';
 
@@ -371,18 +424,37 @@
             });
         }
 
-        if (webcamApiInput) {
+        // 同步所有 API Key 欄位
+        const allApiKeyInputs = [
+            document.getElementById('file-api-key'),
+            document.getElementById('webcam-api-key')
+        ].filter(Boolean);
+
+        if (allApiKeyInputs.length > 0) {
             const savedKey = loadSavedApiKey();
+
+            // 載入已保存的 API Key 到所有欄位
             if (savedKey) {
-                webcamApiInput.value = savedKey;
+                allApiKeyInputs.forEach(input => {
+                    input.value = savedKey;
+                });
             }
 
+            // 為所有 API Key 欄位添加同步功能
             const persistHandler = (event) => {
-                persistApiKey(event.target.value);
+                const newKey = persistApiKey(event.target.value);
+                // 同步到其他 API Key 欄位
+                allApiKeyInputs.forEach(input => {
+                    if (input !== event.target && input.value !== newKey) {
+                        input.value = newKey;
+                    }
+                });
             };
 
-            webcamApiInput.addEventListener('change', persistHandler);
-            webcamApiInput.addEventListener('blur', persistHandler);
+            allApiKeyInputs.forEach(input => {
+                input.addEventListener('change', persistHandler);
+                input.addEventListener('blur', persistHandler);
+            });
         }
 
         function updateWebcamStatus(message) {
@@ -1188,7 +1260,7 @@
 
                 const result = await analyzer.processVideoFile(fileForProcessing);
                 renderFrontendResult(result, jsMethod);
-                updateWebcamStatus('前端分析完成！');
+                updateWebcamStatus('分析完成！');
             } finally {
                 if (typeof analyzer.close === 'function') {
                     try {
@@ -1234,7 +1306,7 @@
 
             const resultHtml = `
                 <div class="result-item">
-                    <h3>前端分析結果 (${displayName})</h3>
+                    <h3>分析結果 (${displayName})</h3>
                     <p><strong>狀態:</strong> 分析完成</p>
                     ${summaryRows.join('')}
                     <p><strong>分析時間:</strong> ${new Date().toLocaleTimeString()}</p>
@@ -1265,6 +1337,18 @@
 
             setRecordingState(true);
             const isFrontendMethod = method.startsWith('js-');
+
+            if (duration < 5) {
+                updateWebcamStatus('錄影時間至少需要 5 秒，請重新設定。');
+                setRecordingState(false);
+                return;
+            }
+
+            if (duration > MAX_VIDEO_DURATION_SECONDS) {
+                setRecordingState(false);
+                updateWebcamStatus(`錄影時間不可超過 ${MAX_VIDEO_DURATION_SECONDS} 秒。請縮短錄影時間後再試。`);
+                return;
+            }
 
             updateWebcamStatus(`正在錄影 ${duration} 秒，請保持臉部穩定。`);
 
@@ -1530,6 +1614,9 @@
             videoInput.value = '';
             filePreview.style.display = 'none';
             uploadProgress.style.display = 'none';
+            if (fileStatus) {
+                fileStatus.textContent = `請上傳長度不超過 ${MAX_VIDEO_DURATION_SECONDS} 秒、大小小於 ${MAX_FILE_SIZE_MB}MB 的影片。`;
+            }
         }
 
         // 檔案上傳處理

@@ -45,7 +45,7 @@ from vitallens import Method, VitalLens
 # Load environment variables from .env if present
 load_dotenv()
 
-MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+MAX_UPLOAD_SIZE_BYTES = int(os.getenv("MAX_FILE_SIZE_MB", "50")) * 1024 * 1024
 MAX_VIDEO_DURATION_SECONDS = 45
 
 
@@ -227,8 +227,8 @@ class VitalLensService:
         self.available_methods: Dict[str, Method] = self._discover_methods()
 
         self.default_api_key: str = os.getenv("VITALLENS_API_KEY", "")
-        self.default_method: str = os.getenv("DEFAULT_METHOD", "POS (免費)")
-        self.app_title: str = os.getenv("APP_TITLE", "VitalLens 生命體徵檢測器")
+        self.default_method: str = "POS (免費)"
+        self.app_title: str = "VitalLens 生命體徵檢測器"
 
         # Webcam recording state
         self._lock = threading.Lock()
@@ -272,11 +272,7 @@ class VitalLensService:
             ValueError: 當檢測方法無效或缺少必要參數時
 
         Example:
-            >>> results = service.process_video(
-            ...     "video.mp4",
-            ...     ["POS (免費)", "CHROM (免費)"],
-            ...     "api_key_here"
-            ... )
+            >>> results = service.process_video("video.mp4", ["POS (免費)"], "")
             >>> print(results["status"])
             Processing Complete!
         """
@@ -1181,6 +1177,8 @@ async def read_index(request: Request):
             "methods": list(service.available_methods.keys()),
             "default_method": service.default_method,
             "api_key_status": api_key_status,
+            "max_file_size_mb": MAX_UPLOAD_SIZE_BYTES // (1024 * 1024),
+            "max_video_duration": MAX_VIDEO_DURATION_SECONDS,
         },
     )
 
