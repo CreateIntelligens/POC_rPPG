@@ -1176,6 +1176,7 @@ async def read_index(request: Request):
             "title": service.app_title,
             "methods": list(service.available_methods.keys()),
             "default_method": service.default_method,
+            "default_api_key": service.default_api_key,
             "api_key_status": api_key_status,
             "max_file_size_mb": MAX_UPLOAD_SIZE_BYTES // (1024 * 1024),
             "max_video_duration": MAX_VIDEO_DURATION_SECONDS,

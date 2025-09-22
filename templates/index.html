@@ -222,6 +222,7 @@
         const MAX_FILE_SIZE_MB = {{ max_file_size_mb }};
         const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
         const MAX_VIDEO_DURATION_SECONDS = {{ max_video_duration }};
+        const DEFAULT_API_KEY = "{{ default_api_key }}";
 
         let mediaStream = null;
         let selectedFile = null;
@@ -395,18 +396,8 @@
 
                 filePreview.style.display = 'block';
 
-                let progress = 0;
-                const interval = setInterval(() => {
-                    progress += Math.random() * 30;
-                    if (progress >= 100) {
-                        progress = 100;
-                        progressText.textContent = '準備完成';
-                        clearInterval(interval);
-                    } else {
-                        progressText.textContent = `檢查中... ${Math.round(progress)}%`;
-                    }
-                    progressFill.style.width = progress + '%';
-                }, 200);
+                progressText.textContent = '檢查中...';
+                progressFill.style.width = '0%';
             }
 
             function formatFileSize(bytes) {
@@ -732,11 +723,25 @@
                     updateWebcamStatus('準備開始錄影...');
                     setRecordingState(false);
                     setRealtimeControlsState(false);
+                    // 自動啟動攝影機預覽
+                    setTimeout(() => {
+                        ensureWebcamPreview().catch((error) => {
+                            console.warn('無法啟動攝影機預覽:', error);
+                            updateWebcamStatus('點擊攝影機畫面以啟動預覽（需要授予攝影機權限）');
+                        });
+                    }, 100);
                 } else if (mode === MODE_REALTIME) {
                     clearStatusPolling();
                     updateWebcamStatus('即時分析尚未啟動，請點擊開始。');
                     resetRealtimeStatus();
                     setRealtimeControlsState(false);
+                    // 自動啟動攝影機預覽
+                    setTimeout(() => {
+                        ensureWebcamPreview().catch((error) => {
+                            console.warn('無法啟動攝影機預覽:', error);
+                            updateWebcamStatus('點擊攝影機畫面以啟動預覽（需要授予攝影機權限）');
+                        });
+                    }, 100);
                 }
             }
 
@@ -781,6 +786,12 @@
 
             if (webcamApiSection) {
                 webcamApiSection.classList.toggle('hidden', !shouldShow);
+
+                // 當 API Key 區域顯示時，確保填入預設值
+                if (shouldShow && webcamApiInput && !webcamApiInput.value && DEFAULT_API_KEY) {
+                    webcamApiInput.value = DEFAULT_API_KEY;
+                    console.log('🔑 模式切換時自動填入 API Key');
+                }
             }
         }
 
@@ -833,8 +844,29 @@
 
             try {
                 const VitalLensCtor = await loadVitalLensConstructor();
-                const rawApiKey = webcamApiInput ? webcamApiInput.value : '';
-                const apiKey = persistApiKey(rawApiKey);
+                const rawApiKey = webcamApiInput ? webcamApiInput.value.trim() : '';
+                // 優先使用前端輸入的值，只有為空時才使用預設值
+                const effectiveApiKey = rawApiKey || DEFAULT_API_KEY || '';
+
+                // 只有當使用預設值時才調用 persistApiKey，避免覆蓋使用者輸入
+                let apiKey;
+                if (rawApiKey) {
+                    // 前端有輸入，直接使用不調用 persistApiKey
+                    apiKey = rawApiKey;
+                } else {
+                    // 前端沒有輸入，使用預設值並保存
+                    apiKey = persistApiKey(effectiveApiKey);
+                }
+
+                console.log('🔑 API Key 狀態:', {
+                    webcamApiInputExists: !!webcamApiInput,
+                    webcamApiInputId: webcamApiInput?.id,
+                    hasRawApiKey: !!rawApiKey,
+                    hasDefaultApiKey: !!DEFAULT_API_KEY,
+                    hasEffectiveApiKey: !!effectiveApiKey,
+                    hasFinalApiKey: !!apiKey,
+                    method: normalizedMethod
+                });
 
                 vitalLensJS = new VitalLensCtor({
                     method: normalizedMethod,
@@ -1065,9 +1097,10 @@
                 heartRate: null,
                 heartRateConfidence: null,
                 respiratoryRate: null,
+                respiratoryRateConfidence: null,
                 faceInfo: null,
                 ppgWaveform: null,
-                notes: [],
+                respiratoryWaveform: null,
                 otherInfo: []
             };
 
@@ -1094,7 +1127,7 @@
                     }
                 } else if (line.indexOf('HR Confidence:') === 0) {
                     const confidence = parseFloat(line.replace('HR Confidence: ', ''));
-                    if (!Number.isNaN(confidence) && confidence < 1.0) {
+                    if (!Number.isNaN(confidence) && confidence <= 1.0) {
                         data.heartRateConfidence = confidence;
                     }
                 } else if (line.indexOf('Respiratory Rate:') === 0) {
@@ -1112,6 +1145,11 @@
                     } else {
                         data.respiratoryRate = rrText;
                     }
+                } else if (line.indexOf('RR Confidence:') === 0) {
+                    const confidence = parseFloat(line.replace('RR Confidence: ', ''));
+                    if (!Number.isNaN(confidence) && confidence <= 1.0) {
+                        data.respiratoryRateConfidence = confidence;
+                    }
                 } else if (line.indexOf('Face Confidence:') === 0) {
                     const potential = line.replace('Face Confidence: ', '').trim();
                     if (potential && potential.toLowerCase().indexOf('face detection coordinates') === -1) {
@@ -1119,11 +1157,10 @@
                     }
                 } else if (line.indexOf('PPG Waveform:') === 0) {
                     data.ppgWaveform = line.replace('PPG Waveform: ', '');
+                } else if (line.indexOf('Respiratory Waveform:') === 0) {
+                    data.respiratoryWaveform = line.replace('Respiratory Waveform: ', '');
                 } else if (line.indexOf('Note:') === 0) {
-                    const note = line.replace('Note: ', '');
-                    if (!note.includes('not capable of providing a confidence estimate') && !note.includes('hence returning 1')) {
-                        data.notes.push(note);
-                    }
+                    // 目前不顯示 Note 內容，僅忽略
                 } else if (line.includes(':') && line.indexOf('System Message:') !== 0) {
                     const [key, value] = line.split(':').map(s => s.trim());
                     if (value && !key.match(/^(Heart Rate|HR Confidence|Respiratory Rate|Face Confidence|PPG Waveform|Note)$/)) {
@@ -1152,27 +1189,34 @@
 
                 if (data.heartRate) {
                     const confidenceText = data.heartRateConfidence
-                        ? `${Math.round(data.heartRateConfidence * 100)}%`
+                        ? `${Math.round(Math.min(data.heartRateConfidence, 1) * 100)}%`
                         : '—';
                     const confidenceClass = data.heartRateConfidence
-                        ? (data.heartRateConfidence > 0.8 ? 'high' : data.heartRateConfidence > 0.6 ? 'medium' : 'low')
+                        ? (data.heartRateConfidence > 0.8 ? 'confidence-high' : data.heartRateConfidence > 0.6 ? 'confidence-medium' : 'confidence-low')
                         : '';
 
                     html += `
                         <tr>
                             <td>❤️ 心率</td>
                             <td class="vital-value">${data.heartRate}</td>
-                            <td class="confidence-${confidenceClass}">${confidenceText}</td>
+                            <td class="${confidenceClass}">${confidenceText}</td>
                             <td>正常範圍 60-100 BPM</td>
                         </tr>`;
                 }
 
                 if (data.respiratoryRate) {
+                    const respConfidenceText = data.respiratoryRateConfidence
+                        ? `${Math.round(Math.min(data.respiratoryRateConfidence, 1) * 100)}%`
+                        : '—';
+                    const respConfidenceClass = data.respiratoryRateConfidence
+                        ? (data.respiratoryRateConfidence > 0.8 ? 'confidence-high' : data.respiratoryRateConfidence > 0.6 ? 'confidence-medium' : 'confidence-low')
+                        : '';
+
                     html += `
                         <tr>
                             <td>🫁 呼吸率</td>
                             <td class="vital-value">${data.respiratoryRate}</td>
-                            <td>—</td>
+                            <td class="${respConfidenceClass}">${respConfidenceText}</td>
                             <td>正常範圍 12-20 RPM</td>
                         </tr>`;
                 }
@@ -1192,6 +1236,14 @@
                     </div>`;
             }
 
+            if (data.respiratoryWaveform) {
+                html += `
+                    <div class="ppg-summary">
+                        <span class="ppg-label">🌬️ 呼吸波形</span>
+                        <span class="ppg-value">${data.respiratoryWaveform}</span>
+                    </div>`;
+            }
+
             // 臉部分析
             if (data.faceInfo) {
                 html += `
@@ -1201,36 +1253,7 @@
                     </div>`;
             }
 
-            // 進階資訊（折疊區）
-            const hasAdvancedInfo = data.notes.length > 0 || data.otherInfo.length > 0;
-            if (hasAdvancedInfo) {
-                html += `
-                    <div class="advanced-info">
-                        <details>
-                            <summary>🔍 進階資訊</summary>
-                            <div class="advanced-content">`;
-
-                if (data.notes.length > 0) {
-                    html += `
-                        <div class="notes-section">
-                            <h5>ℹ️ 分析說明</h5>
-                            ${data.notes.map(note => `<p class="note-item">${note}</p>`).join('')}
-                        </div>`;
-                }
-
-                if (data.otherInfo.length > 0) {
-                    html += `
-                        <div class="other-info">
-                            <h5>📊 其他資訊</h5>
-                            ${data.otherInfo.map(info => `<div class="info-row"><span class="info-key">${info.key}:</span> <span class="info-value">${info.value}</span></div>`).join('')}
-                        </div>`;
-                }
-
-                html += `
-                            </div>
-                        </details>
-                    </div>`;
-            }
+            // 其他資訊（暫不顯示）
 
             return html ? `<div class="formatted-results">${html}</div>` : '';
         }
@@ -1598,8 +1621,92 @@
         }
 
         function connectStatusSocket() {
-            // WebSocket 功能已移除，使用輪詢代替
-            console.log('狀態更新改用輪詢機制');
+            if (statusSocket && statusSocket.readyState === WebSocket.OPEN) {
+                return; // Already connected
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/status`;
+
+            statusSocket = new WebSocket(wsUrl);
+
+            statusSocket.onopen = () => {
+                console.log('WebSocket 連接成功');
+            };
+
+            statusSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleStatusUpdate(data);
+                } catch (error) {
+                    console.error('解析 WebSocket 訊息失敗:', error);
+                }
+            };
+
+            statusSocket.onclose = () => {
+                console.log('WebSocket 連接關閉');
+                setTimeout(connectStatusSocket, 3000); // 3秒後重連
+            };
+
+            statusSocket.onerror = (error) => {
+                console.error('WebSocket 錯誤:', error);
+            };
+        }
+
+        let currentMethodIndex = 0;
+        let totalMethods = 1;
+
+        function handleStatusUpdate(data) {
+            const { channel, stage, method, file, message } = data;
+
+            if (channel === 'upload') {
+                const progressFill = uploadProgress.querySelector('.progress-fill');
+                const progressPercentage = uploadProgress.querySelector('.progress-percentage');
+
+                // 解析訊息中的方法進度 [1/3]
+                if (message && message.includes('[') && message.includes('/')) {
+                    const match = message.match(/\[(\d+)\/(\d+)\]/);
+                    if (match) {
+                        currentMethodIndex = parseInt(match[1]);
+                        totalMethods = parseInt(match[2]);
+                    }
+                }
+
+                let progressValue = 0;
+                let statusText = message || '';
+
+                if (stage === 'queued') {
+                    progressValue = 5;
+                    statusText = statusText || '開始處理...';
+                } else if (stage === 'start') {
+                    // 根據當前方法計算進度
+                    progressValue = Math.round(((currentMethodIndex - 1) / totalMethods) * 80 + 10);
+                    statusText = statusText || `分析中... (${currentMethodIndex}/${totalMethods})`;
+                } else if (stage === 'complete') {
+                    // 方法完成
+                    progressValue = Math.round((currentMethodIndex / totalMethods) * 80 + 10);
+                    if (currentMethodIndex === totalMethods) {
+                        progressValue = 95; // 所有方法完成，等待最終結果
+                    }
+                } else if (stage === 'error') {
+                    progressValue = Math.round(((currentMethodIndex - 1) / totalMethods) * 80 + 10);
+                    statusText = message || '處理錯誤';
+                }
+
+                progressFill.style.width = progressValue + '%';
+                progressPercentage.textContent = progressValue + '%';
+
+                // 更新狀態訊息到進度文字
+                const progressTextElement = uploadProgress.querySelector('.progress-text');
+                if (progressTextElement) {
+                    progressTextElement.textContent = statusText;
+                } else {
+                    // 如果沒有進度文字元素，更新百分比文字
+                    progressPercentage.textContent = `${progressValue}% - ${statusText}`;
+                }
+            }
+
+            console.log('狀態更新:', data);
         }
 
         window.addEventListener('beforeunload', () => {
@@ -1676,17 +1783,12 @@
             const progressFill = uploadProgress.querySelector('.progress-fill');
             const progressPercentage = uploadProgress.querySelector('.progress-percentage');
 
-            let progress = 0;
+            // 清除舊的進度計時器
             clearInterval(uploadProgressTimer);
-            uploadProgressTimer = setInterval(() => {
-                progress += Math.random() * 15;
-                if (progress >= 90) {
-                    progress = 90;
-                    clearInterval(uploadProgressTimer);
-                }
-                progressFill.style.width = progress + '%';
-                progressPercentage.textContent = Math.round(progress) + '%';
-            }, 500);
+
+            // 初始化進度條
+            progressFill.style.width = '0%';
+            progressPercentage.textContent = '0%';
         }
 
         async function uploadWithProgress(url, formData) {
@@ -1714,8 +1816,14 @@
                     clearInterval(uploadProgressTimer);
                     const progressFill = uploadProgress.querySelector('.progress-fill');
                     const progressPercentage = uploadProgress.querySelector('.progress-percentage');
+                    const progressTextElement = uploadProgress.querySelector('.progress-text');
+
                     progressFill.style.width = '100%';
                     progressPercentage.textContent = '100%';
+                    if (progressTextElement) {
+                        progressTextElement.textContent = '處理完成';
+                    }
+
                     resolve({
                         ok: xhr.status >= 200 && xhr.status < 300,
                         status: xhr.status,
@@ -1733,10 +1841,32 @@
             });
         }
 
+        // 初始化預設 API Key
+        function initializeApiKeys() {
+            if (DEFAULT_API_KEY) {
+                // 設定所有 API Key 輸入欄位的預設值
+                const allApiKeyInputs = [
+                    document.getElementById('file-api-key'),
+                    document.getElementById('webcam-api-key')
+                ].filter(Boolean);
+
+                allApiKeyInputs.forEach(input => {
+                    if (!input.value) {
+                        input.value = DEFAULT_API_KEY;
+                    }
+                });
+
+                // 同步到 localStorage
+                persistApiKey(DEFAULT_API_KEY);
+                console.log('✅ 已載入預設 API Key');
+            }
+        }
+
         // 初始化
         initializeDragAndDrop();
         setupWebcamInteractions();
         connectStatusSocket();
+        initializeApiKeys();
     </script>
 </body>
 </html>
