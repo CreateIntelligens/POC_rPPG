@@ -15,6 +15,11 @@
     </header>
 
     <main class="container">
+        <div class="analysis-tabs">
+            <button type="button" class="analysis-tab active" data-mode-tab="upload">🎬 影片上傳</button>
+            <button type="button" class="analysis-tab" data-mode-tab="record">📹 錄影分析</button>
+            <button type="button" class="analysis-tab" data-mode-tab="realtime">⚡ 即時串流</button>
+        </div>
         <section class="panel" id="video-upload">
             <h2>📁 影片檔案分析</h2>
             <form id="file-form" enctype="multipart/form-data">
@@ -76,8 +81,10 @@
                 </select>
 
 
-                <label for="file-api-key">API Key（使用 VITALLENS 時必填）</label>
-                <input id="file-api-key" name="api_key" type="password" placeholder="請輸入 VitalLens API Key">
+                <div id="file-api-key-section" class="form-field hidden">
+                    <label for="file-api-key">API Key（使用 VITALLENS 時必填）</label>
+                    <input id="file-api-key" name="api_key" type="password" placeholder="請輸入 VitalLens API Key">
+                </div>
 
                 <button type="submit">🔍 開始分析</button>
             </form>
@@ -86,66 +93,99 @@
             <img id="file-plot" class="plot" alt="影片分析圖表" style="display: none;">
         </section>
 
-        <section class="panel" id="webcam-analysis">
+        <section class="panel hidden" id="webcam-analysis">
             <h2>📹 網路攝影機分析</h2>
-            <form id="webcam-form">
-                <label for="webcam-method">選擇檢測方法</label>
-                <select id="webcam-method" name="method" required>
-                    {% for option in methods %}
-                    <option value="{{ option }}" {% if option == default_method %}selected{% endif %}>{{ option }}</option>
-                    {% endfor %}
-                </select>
-
-                <label for="webcam-api-key">API Key（使用 VITALLENS 時必填）</label>
-                <input id="webcam-api-key" name="api_key" type="password" placeholder="請輸入 VitalLens API Key">
-
+            <form id="webcam-form" method="post" action="#">
+                <div class="form-field mode-record-only">
+                    <label for="webcam-method">錄影檢測方法</label>
+                    <select id="webcam-method" name="method" required>
+                        <optgroup label="前端分析 (即時)">
+                            <option value="js-pos">前端快速 (POS)</option>
+                            <option value="js-chrom">前端快速 (CHROM)</option>
+                            <option value="js-vitallens">前端精確 (VitalLens)</option>
+                        </optgroup>
+                        <optgroup label="後端分析 (精確)">
+                            {% for option in methods %}
+                            <option value="{{ option }}" {% if option == default_method %}selected{% endif %}>{{ option }}</option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="form-field mode-realtime-only hidden">
+                    <label for="realtime-method">即時檢測方法</label>
+                    <select id="realtime-method" name="realtime_method">
+                        <option value="js-pos" selected>前端快速 (POS)</option>
+                        <option value="js-chrom">前端快速 (CHROM)</option>
+                        <option value="js-vitallens">前端精確 (VitalLens)</option>
+                    </select>
+                </div>
+                <div id="webcam-api-key-section" class="form-field hidden">
+                    <label for="webcam-api-key">API Key（使用 VITALLENS 時必填）</label>
+                    <input id="webcam-api-key" name="api_key" type="password" placeholder="請輸入 VitalLens API Key">
+                </div>
+                <div class="form-field mode-record-only">
                 <label for="recording-duration">錄影時間（秒）</label>
-                <input id="recording-duration" name="duration" type="number" min="5" max="60" value="15" step="5">
-
-                <div class="button-row">
+                <input id="recording-duration" name="duration" type="number" min="5" max="45" value="15" step="5">
+                </div>
+                <div class="button-row mode-record-only">
                     <button type="button" id="start-recording">🔴 開始錄影</button>
                     <button type="button" id="stop-recording" class="secondary" disabled>⏹️ 停止錄影</button>
                 </div>
+                <div class="button-row mode-realtime-only hidden">
+                    <button type="button" id="start-realtime">⚡ 開始即時</button>
+                    <button type="button" id="stop-realtime" class="secondary" disabled>⏹️ 停止即時</button>
+                </div>
             </form>
-            <div class="status" id="webcam-status">準備開始錄影...</div>
-            <div id="webcam-results" class="results-grid" aria-live="polite"></div>
+            <div class="status hidden" id="webcam-status">準備開始錄影...</div>
             <div class="video-container">
                 <video id="webcam-preview" class="webcam-preview" autoplay muted playsinline></video>
-                <canvas id="face-overlay" class="face-overlay"></canvas>
-                <div class="face-detection-info" id="face-detection-info" style="display: none;">
+                <div class="face-detection-info mode-realtime-only hidden" id="face-detection-info">
                     <div class="detection-indicator">
                         <span class="indicator-light"></span>
-                        <span class="indicator-text">偵測到人臉</span>
+                        <span class="indicator-text">尚未啟動</span>
                     </div>
-                    <!-- <div class="heart-rate-preview" id="heart-rate-preview">
-                        <span class="hr-label">預估心率:</span>
+                    <div class="heart-rate-preview" id="heart-rate-preview">
+                        <span class="hr-label">即時心率:</span>
                         <span class="hr-value" id="hr-value">-- BPM</span>
-                    </div> -->
+                        <span class="hr-confidence" id="hr-confidence"></span>
+                    </div>
                 </div>
             </div>
-            <img id="webcam-plot" class="plot" alt="網路攝影機分析圖表" style="display: none;">
-            <pre id="webcam-result" class="result"></pre>
+            <div id="record-results" class="mode-record-only">
+                <div id="webcam-results" class="results-grid" aria-live="polite"></div>
+                <img id="webcam-plot" class="plot" alt="網路攝影機分析圖表" style="display: none;">
+                <pre id="webcam-result" class="result"></pre>
+            </div>
         </section>
 
         <section class="panel info">
             <h2>📋 使用說明</h2>
-            <h3>影片檔案分析</h3>
+            <h3>🎬 影片上傳</h3>
             <ol>
-                <li>上傳影片（建議 5-30 秒，確保臉部清晰可見）。</li>
-                <li>依需求選擇檢測方法。VITALLENS 需要有效 API Key。</li>
-                <li>點擊「開始分析」，等待結果與圖表。</li>
+                <li>拖拽或選擇影片檔案上傳（建議 5-30 秒，臉部清晰可見）</li>
+                <li>選擇合適的檢測方法（使用 VITALLENS 需要 API Key）</li>
+                <li>點擊「開始分析」，稍等片刻即可查看心率分析結果</li>
             </ol>
-            <h3>網路攝影機分析</h3>
+            <h3>📹 錄影分析</h3>
             <ol>
-                <li>授權瀏覽器存取攝影機，畫面會顯示於預覽區。</li>
-                <li>設定錄影時間（5-60 秒）並保持面向攝影機。</li>
-                <li>錄影完成後系統會自動上傳並分析，結果將出現在下方。</li>
+                <li>允許瀏覽器存取攝影機，確保畫面顯示正常</li>
+                <li>調整錄影時間（5-60 秒），保持臉部正對鏡頭</li>
+                <li>點擊「開始錄影」，完成後自動進行分析並顯示結果</li>
             </ol>
-            <p>⚠️ 本工具僅供健康參考，若有健康疑慮請諮詢專業醫師。</p>
+            <h3>⚡ 即時串流</h3>
+            <ol>
+                <li>開啟攝影機權限，確保臉部在畫面中央</li>
+                <li>選擇即時檢測方法，點擊「開始即時」</li>
+                <li>保持穩定姿勢，即可看到即時心率數據更新</li>
+            </ol>
+            <p>⚠️ 本工具僅供健康參考，數值不可用於醫療診斷。如有健康疑慮請諮詢專業醫師。</p>
         </section>
     </main>
 
     <footer>
+        <div class="disclaimer">
+            <p><strong>⚠️ 重要提醒:</strong> 本系統提供的數值僅為估算值，應根據提供的信心度（0-1）進行解讀。VitalLens API 並非醫療設備，其估算結果不適用於任何醫療用途。</p>
+        </div>
         <small>© {{ title }} | 支援免費與 VITALLENS API 方法</small>
     </footer>
 
@@ -158,6 +198,7 @@
         const videoInput = document.getElementById('video-input');
         const filePreview = document.getElementById('file-preview');
         const uploadProgress = document.getElementById('upload-progress');
+        let uploadProgressTimer = null;
 
         const webcamForm = document.getElementById('webcam-form');
         const startRecordingBtn = document.getElementById('start-recording');
@@ -165,21 +206,49 @@
         const webcamStatus = document.getElementById('webcam-status');
         const webcamResults = document.getElementById('webcam-results');
         const webcamPreview = document.getElementById('webcam-preview');
-        const faceOverlay = document.getElementById('face-overlay');
         const faceDetectionInfo = document.getElementById('face-detection-info');
         const hrValue = document.getElementById('hr-value');
+        const webcamApiInput = document.getElementById('webcam-api-key');
+        const indicatorText = faceDetectionInfo?.querySelector('.indicator-text');
+        const indicatorLight = faceDetectionInfo?.querySelector('.indicator-light');
+        const webcamApiSection = document.getElementById('webcam-api-key-section');
+        const webcamMethodSelect = document.getElementById('webcam-method');
+        const realtimeMethodSelect = document.getElementById('realtime-method');
+        const modeTabs = Array.from(document.querySelectorAll('[data-mode-tab]'));
+        const videoUploadSection = document.getElementById('video-upload');
+        const webcamPanel = document.getElementById('webcam-analysis');
+        const recordSections = Array.from(document.querySelectorAll('.mode-record-only'));
+        const realtimeSections = Array.from(document.querySelectorAll('.mode-realtime-only'));
+        const recordResultsWrapper = document.getElementById('record-results');
+        const startRealtimeBtn = document.getElementById('start-realtime');
+        const stopRealtimeBtn = document.getElementById('stop-realtime');
+        const webcamPlot = document.getElementById('webcam-plot');
+        const webcamResult = document.getElementById('webcam-result');
+
+        const MAX_FILE_SIZE_MB = 50;
+        const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+        const MAX_UPLOAD_DURATION_SECONDS = 45;
 
         let mediaStream = null;
         let selectedFile = null;
         let dragCounter = 0;
-        let faceOverlayAnimation = null;
-        let heartRateSimulation = null;
         let statusPoller = null;
         let statusSocket = null;
-        let isDetectingFace = false;
         let isRecordingActive = false;
+        let isRealtimeActive = false;
+        const MODE_UPLOAD = 'upload';
+        const MODE_RECORD = 'record';
+        const MODE_REALTIME = 'realtime';
+        const VITALLENS_CDN_URL = 'https://unpkg.com/vitallens@0.2.0/dist/vitallens.browser.js';
+        const API_KEY_STORAGE_KEY = 'vitallens_api_key';
+        let vitalLensConstructorPromise = null;
         let mediaRecorder = null;
         let recordedChunks = [];
+        let vitalLensJS = null;
+        let vitalLensVitalsHandler = null;
+        let realtimeStatusTimer = null;
+        let hasRealtimeResult = false;
+        let currentMode = MODE_UPLOAD;
 
         // 初始化拖拽上傳功能
         function initializeDragAndDrop() {
@@ -296,6 +365,26 @@
             }
         }
 
+        if (webcamForm) {
+            webcamForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+            });
+        }
+
+        if (webcamApiInput) {
+            const savedKey = loadSavedApiKey();
+            if (savedKey) {
+                webcamApiInput.value = savedKey;
+            }
+
+            const persistHandler = (event) => {
+                persistApiKey(event.target.value);
+            };
+
+            webcamApiInput.addEventListener('change', persistHandler);
+            webcamApiInput.addEventListener('blur', persistHandler);
+        }
+
         function updateWebcamStatus(message) {
             if (webcamStatus) {
                 webcamStatus.textContent = message;
@@ -329,9 +418,14 @@
                 });
                 webcamPreview.srcObject = mediaStream;
                 await webcamPreview.play();
-                adjustOverlaySize();
-                startFaceDetectionPreview();
-                updateWebcamStatus('攝影機已啟動，請保持臉部在畫面中央。');
+
+                if (currentMode === MODE_REALTIME) {
+                    resetRealtimeStatus();
+                    updateWebcamStatus('即時分析尚未啟動，請點擊開始。');
+                    setRealtimeControlsState(false);
+                } else {
+                    updateWebcamStatus('攝影機已啟動，準備開始錄影。');
+                }
             } catch (error) {
                 mediaStream = null;
                 updateWebcamStatus('無法存取攝影機，請確認裝置可用並授予權限。');
@@ -340,9 +434,10 @@
         }
 
         function releaseWebcamPreview() {
-            stopFaceDetectionPreview();
+            stopRealtimeAnalysis();
+            setRealtimeControlsState(false);
             if (faceDetectionInfo) {
-                faceDetectionInfo.style.display = 'none';
+                faceDetectionInfo.classList.add('hidden');
             }
             if (webcamPreview) {
                 webcamPreview.pause();
@@ -362,93 +457,6 @@
                     console.warn('Unable to resume webcam preview', error);
                 }
             }
-        }
-
-        function adjustOverlaySize() {
-            if (!faceOverlay || !webcamPreview) return;
-
-            const width = webcamPreview.videoWidth || webcamPreview.clientWidth || 640;
-            const height = webcamPreview.videoHeight || webcamPreview.clientHeight || 480;
-
-            if (width && height) {
-                faceOverlay.width = width;
-                faceOverlay.height = height;
-            }
-        }
-
-        function startFaceDetectionPreview() {
-            if (!faceOverlay || faceOverlayAnimation) {
-                return;
-            }
-
-            const ctx = faceOverlay.getContext('2d');
-            if (!ctx) {
-                return;
-            }
-            faceDetectionInfo.style.display = 'flex';
-            isDetectingFace = true;
-
-            const draw = () => {
-                adjustOverlaySize();
-
-                const width = faceOverlay.width;
-                const height = faceOverlay.height;
-
-                ctx.clearRect(0, 0, width, height);
-
-                if (!width || !height) {
-                    faceOverlayAnimation = requestAnimationFrame(draw);
-                    return;
-                }
-
-                const boxWidth = width * 0.45;
-                const boxHeight = height * 0.6;
-                const startX = (width - boxWidth) / 2;
-                const startY = (height - boxHeight) / 2;
-
-                ctx.lineWidth = 3;
-                ctx.strokeStyle = 'rgba(16, 185, 129, 0.85)';
-                ctx.strokeRect(startX, startY, boxWidth, boxHeight);
-
-                ctx.strokeStyle = 'rgba(16, 185, 129, 0.7)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(startX + boxWidth * 0.35, startY + boxHeight * 0.35, boxWidth * 0.05, 0, Math.PI * 2);
-                ctx.arc(startX + boxWidth * 0.65, startY + boxHeight * 0.35, boxWidth * 0.05, 0, Math.PI * 2);
-                ctx.stroke();
-
-                ctx.beginPath();
-                const mouthY = startY + boxHeight * 0.72;
-                const mouthCurve = boxWidth * 0.05 * Math.sin(Date.now() / 450);
-                ctx.moveTo(startX + boxWidth * 0.3, mouthY);
-                ctx.quadraticCurveTo(
-                    startX + boxWidth * 0.5,
-                    mouthY + mouthCurve,
-                    startX + boxWidth * 0.7,
-                    mouthY
-                );
-                ctx.stroke();
-
-                faceOverlayAnimation = requestAnimationFrame(draw);
-            };
-
-            draw();
-        }
-
-        function stopFaceDetectionPreview() {
-            if (faceOverlayAnimation) {
-                cancelAnimationFrame(faceOverlayAnimation);
-                faceOverlayAnimation = null;
-            }
-            if (!faceOverlay) {
-                return;
-            }
-            const ctx = faceOverlay.getContext('2d');
-            if (ctx) {
-                ctx.clearRect(0, 0, faceOverlay.width, faceOverlay.height);
-            }
-            faceDetectionInfo.style.display = 'none';
-            isDetectingFace = false;
         }
 
         // 已註解：假的心率模擬功能
@@ -472,6 +480,450 @@
         //     }
         //     hrValue.textContent = '-- BPM';
         // }
+
+        async function loadVitalLensConstructor() {
+            if (!vitalLensConstructorPromise) {
+                vitalLensConstructorPromise = import(VITALLENS_CDN_URL)
+                    .then((module) => {
+                        const ctor = module?.VitalLens || module?.default;
+                        if (!ctor) {
+                            throw new Error('VitalLens constructor not found in module exports.');
+                        }
+
+                        // 暴露於全域便於偵錯，但核心仍使用本地快取
+                        window.VitalLens = ctor;
+                        window.VitalLensModule = module;
+                        return ctor;
+                    })
+                    .catch((error) => {
+                        vitalLensConstructorPromise = null;
+                        throw error;
+                    });
+            }
+
+            return vitalLensConstructorPromise;
+        }
+
+        function clearRealtimeStatusMonitoring() {
+            if (realtimeStatusTimer) {
+                clearTimeout(realtimeStatusTimer);
+                realtimeStatusTimer = null;
+            }
+        }
+
+        function scheduleRealtimeStatusCheck() {
+            clearRealtimeStatusMonitoring();
+            hasRealtimeResult = false;
+            realtimeStatusTimer = setTimeout(() => {
+                if (hasRealtimeResult) {
+                    return;
+                }
+                if (hrValue) {
+                    hrValue.textContent = '尚未取得';
+                }
+                updateWebcamStatus('尚未取得有效訊號，請保持正對鏡頭並確保光線充足。');
+                if (indicatorText) {
+                    indicatorText.textContent = '等待訊號';
+                }
+                if (currentMode === MODE_REALTIME) {
+                    setIndicatorState('waiting');
+                }
+            }, 6000);
+        }
+
+        function resetRealtimeStatus() {
+            hasRealtimeResult = false;
+            clearRealtimeStatusMonitoring();
+            setIndicatorState(null);
+            if (indicatorText) {
+                indicatorText.textContent = '尚未啟動';
+            }
+            if (hrValue) {
+                hrValue.textContent = '-- BPM';
+            }
+            const hrConfidence = document.getElementById('hr-confidence');
+            if (hrConfidence) {
+                hrConfidence.textContent = '';
+            }
+        }
+
+        function loadSavedApiKey() {
+            try {
+                const saved = localStorage.getItem(API_KEY_STORAGE_KEY);
+                return (saved || '').trim();
+            } catch (error) {
+                console.warn('Unable to access localStorage for API key:', error);
+                return '';
+            }
+        }
+
+        function persistApiKey(value) {
+            const trimmed = (value || '').trim();
+            try {
+                if (trimmed) {
+                    localStorage.setItem(API_KEY_STORAGE_KEY, trimmed);
+                } else {
+                    localStorage.removeItem(API_KEY_STORAGE_KEY);
+                }
+            } catch (error) {
+                console.warn('Unable to persist API key:', error);
+            }
+
+            if (webcamApiInput && webcamApiInput.value !== trimmed) {
+                webcamApiInput.value = trimmed;
+            }
+
+            return trimmed;
+        }
+
+        function setIndicatorState(state) {
+            if (!indicatorLight) {
+                return;
+            }
+
+            indicatorLight.classList.remove('waiting', 'active');
+
+            if (state === 'waiting') {
+                indicatorLight.classList.add('waiting');
+            } else if (state === 'active') {
+                indicatorLight.classList.add('active');
+            }
+        }
+
+        function toggleElements(elements, shouldShow) {
+            elements.forEach((element) => {
+                if (!element) {
+                    return;
+                }
+                element.classList.toggle('hidden', !shouldShow);
+            });
+        }
+
+        function setRealtimeControlsState(isActive) {
+            isRealtimeActive = isActive;
+            if (startRealtimeBtn) {
+                startRealtimeBtn.disabled = isActive;
+            }
+            if (stopRealtimeBtn) {
+                stopRealtimeBtn.disabled = !isActive;
+            }
+        }
+
+        async function setAnalysisMode(mode) {
+            if (!mode || mode === currentMode) {
+                updateApiKeyVisibility();
+                return;
+            }
+
+            if (currentMode === MODE_REALTIME && isRealtimeActive) {
+                stopRealtimeAnalysis();
+                setRealtimeControlsState(false);
+            }
+
+            if (currentMode === MODE_RECORD && isRecordingActive) {
+                try {
+                    await stopWebcamRecording();
+                } catch (error) {
+                    console.warn('停止錄影時發生錯誤:', error);
+                }
+            }
+
+            currentMode = mode;
+
+            modeTabs.forEach((tab) => {
+                tab.classList.toggle('active', tab.dataset.modeTab === mode);
+            });
+
+            if (mode === MODE_UPLOAD) {
+                videoUploadSection?.classList.remove('hidden');
+                webcamPanel?.classList.add('hidden');
+                webcamStatus?.classList.add('hidden');
+                updateWebcamStatus('');
+                stopRealtimeAnalysis();
+                clearStatusPolling();
+                setRealtimeControlsState(false);
+                setRecordingState(false);
+            } else {
+                videoUploadSection?.classList.add('hidden');
+                webcamPanel?.classList.remove('hidden');
+                toggleElements(recordSections, mode === MODE_RECORD);
+                toggleElements(realtimeSections, mode === MODE_REALTIME);
+                if (recordResultsWrapper) {
+                    recordResultsWrapper.classList.toggle('hidden', mode !== MODE_RECORD);
+                }
+                if (webcamStatus) {
+                    webcamStatus.classList.remove('hidden');
+                }
+                faceDetectionInfo?.classList.toggle('hidden', mode !== MODE_REALTIME);
+
+                if (mode === MODE_RECORD) {
+                    updateWebcamStatus('準備開始錄影...');
+                    setRecordingState(false);
+                    setRealtimeControlsState(false);
+                } else if (mode === MODE_REALTIME) {
+                    clearStatusPolling();
+                    updateWebcamStatus('即時分析尚未啟動，請點擊開始。');
+                    resetRealtimeStatus();
+                    setRealtimeControlsState(false);
+                }
+            }
+
+            updateApiKeyVisibility();
+        }
+
+        async function handleStartRealtime() {
+            if (isRealtimeActive) {
+                return;
+            }
+
+            try {
+                await ensureWebcamPreview();
+            } catch (error) {
+                console.error('Failed to initialise webcam preview', error);
+                updateWebcamStatus(error.message || '無法啟動攝影機預覽');
+                return;
+            }
+
+            const methodValue = realtimeMethodSelect ? realtimeMethodSelect.value : 'js-pos';
+
+            try {
+                await startRealtimeAnalysis(methodValue);
+                setRealtimeControlsState(true);
+            } catch (error) {
+                console.error('Unable to start realtime analysis', error);
+                updateWebcamStatus(error.message || '即時分析啟動失敗');
+                setRealtimeControlsState(false);
+            }
+        }
+
+        function handleStopRealtime() {
+            stopRealtimeAnalysis();
+            setRealtimeControlsState(false);
+            updateWebcamStatus('即時分析已停止。');
+        }
+
+        function updateApiKeyVisibility() {
+            const recordNeedsKey = Boolean(webcamMethodSelect && webcamMethodSelect.value && webcamMethodSelect.value.toLowerCase().includes('vitallens'));
+            const realtimeNeedsKey = Boolean(realtimeMethodSelect && realtimeMethodSelect.value && realtimeMethodSelect.value.toLowerCase().includes('vitallens'));
+            const shouldShow = (currentMode === MODE_RECORD && recordNeedsKey) || (currentMode === MODE_REALTIME && realtimeNeedsKey);
+
+            if (webcamApiSection) {
+                webcamApiSection.classList.toggle('hidden', !shouldShow);
+            }
+        }
+
+        function updateFileApiKeyVisibility() {
+            const fileMethodSelect = document.getElementById('file-method');
+            const fileApiSection = document.getElementById('file-api-key-section');
+
+            if (!fileMethodSelect || !fileApiSection) {
+                return;
+            }
+
+            const needsApiKey = fileMethodSelect.value && fileMethodSelect.value.toLowerCase().includes('vitallens');
+            fileApiSection.classList.toggle('hidden', !needsApiKey);
+        }
+
+        // VitalLens.js 即時心率檢測功能
+        async function initVitalLensJS(methodName = 'pos') {
+            const normalizedMethod = (methodName || 'pos').toLowerCase();
+
+            if (vitalLensJS && vitalLensJS.__method === normalizedMethod) {
+                return vitalLensJS;
+            }
+
+            if (vitalLensJS) {
+                try {
+                    vitalLensJS.stopVideoStream?.();
+                } catch (stopError) {
+                    console.warn('停止既有 VitalLens 實例時發生錯誤:', stopError);
+                }
+
+                if (typeof vitalLensJS.removeEventListener === 'function' && vitalLensVitalsHandler) {
+                    try {
+                        vitalLensJS.removeEventListener('vitals', vitalLensVitalsHandler);
+                    } catch (removeError) {
+                        console.warn('移除 VitalLens 事件監聽時發生錯誤:', removeError);
+                    }
+                }
+
+                try {
+                    if (typeof vitalLensJS.close === 'function') {
+                        await vitalLensJS.close();
+                    }
+                } catch (closeError) {
+                    console.warn('關閉 VitalLens 實例時發生錯誤:', closeError);
+                }
+
+                vitalLensJS = null;
+                vitalLensVitalsHandler = null;
+            }
+
+            try {
+                const VitalLensCtor = await loadVitalLensConstructor();
+                const rawApiKey = webcamApiInput ? webcamApiInput.value : '';
+                const apiKey = persistApiKey(rawApiKey);
+
+                vitalLensJS = new VitalLensCtor({
+                    method: normalizedMethod,
+                    apiKey: apiKey || undefined,
+                });
+                vitalLensJS.__method = normalizedMethod;
+                vitalLensJS.__vitalsListenerAttached = false;
+
+                vitalLensVitalsHandler = (payload) => {
+                    try {
+                        const data = payload?.detail ?? payload;
+                        const heart = data?.vital_signs?.heart_rate;
+                        const bpmValue = heart?.value;
+                        const confidence = heart?.confidence;
+
+                        if (typeof bpmValue === 'number') {
+                            updateHeartRateDisplay(bpmValue, confidence);
+                        }
+                    } catch (handlerError) {
+                        console.error('VitalLens.js vitals handler error:', handlerError);
+                    }
+                };
+
+                if (typeof vitalLensJS.addEventListener === 'function' && vitalLensVitalsHandler) {
+                    vitalLensJS.addEventListener('vitals', vitalLensVitalsHandler);
+                }
+
+                console.log('VitalLens.js initialized successfully');
+                return vitalLensJS;
+            } catch (error) {
+                console.error('Failed to initialize VitalLens.js:', error);
+                vitalLensVitalsHandler = null;
+                vitalLensJS = null;
+                throw error;
+            }
+        }
+
+        function updateHeartRateDisplay(heartRate, confidence) {
+            if (hrValue) {
+                if (typeof heartRate === 'number' && Number.isFinite(heartRate)) {
+                    hrValue.textContent = `${heartRate.toFixed(1)} BPM`;
+                    hasRealtimeResult = true;
+                    if (currentMode === MODE_REALTIME) {
+                        if (indicatorText) {
+                            indicatorText.textContent = '訊號穩定';
+                        }
+                        clearRealtimeStatusMonitoring();
+                        updateWebcamStatus(`即時心率 ${heartRate.toFixed(1)} BPM`);
+                        setIndicatorState('active');
+                    }
+                } else {
+                    hrValue.textContent = '-- BPM';
+                    if (currentMode === MODE_REALTIME) {
+                        setIndicatorState('waiting');
+                    }
+                }
+            }
+
+            const hrConfidence = document.getElementById('hr-confidence');
+            if (!hrConfidence) {
+                return;
+            }
+
+            if (typeof confidence === 'number' && Number.isFinite(confidence)) {
+                const normalized = confidence > 1 ? confidence / 100 : confidence;
+                const confidencePercent = Math.round(normalized * 100);
+                hrConfidence.textContent = `(${confidencePercent}%)`;
+                hrConfidence.style.color = normalized > 0.7
+                    ? 'var(--success)'
+                    : normalized > 0.5
+                        ? 'var(--warning)'
+                        : 'var(--danger)';
+            } else {
+                hrConfidence.textContent = '';
+            }
+        }
+
+        // VitalLens.js 模擬心率函數已移除
+
+        async function startRealtimeAnalysis(methodValue) {
+            const stream = webcamPreview?.srcObject;
+            if (!stream) {
+                throw new Error('攝影機預覽尚未啟動');
+            }
+
+            try {
+                const selectedMethod = (methodValue || 'js-pos').replace('js-', '') || 'pos';
+                const instance = await initVitalLensJS(selectedMethod);
+                await instance.setVideoStream(stream, webcamPreview);
+                instance.startVideoStream();
+
+                if (typeof instance.addEventListener === 'function' && !instance.__vitalsListenerAttached) {
+                    instance.addEventListener('vitals', (event) => {
+                        const payload = event?.detail ?? event;
+                        const heart = payload?.vital_signs?.heart_rate;
+                        updateHeartRateDisplay(heart?.value, heart?.confidence);
+                    });
+                    instance.__vitalsListenerAttached = true;
+                }
+
+                if (faceDetectionInfo) {
+                    faceDetectionInfo.classList.remove('hidden');
+                }
+
+                if (indicatorText) {
+                    indicatorText.textContent = '等待訊號';
+                }
+                setIndicatorState('waiting');
+
+                if (hrValue) {
+                    hrValue.textContent = '等待資料...';
+                }
+
+                hasRealtimeResult = false;
+                scheduleRealtimeStatusCheck();
+                updateWebcamStatus('即時分析已啟動，請保持穩定。');
+            } catch (error) {
+                console.error('Failed to start realtime analysis:', error);
+                clearRealtimeStatusMonitoring();
+                if (hrValue) {
+                    hrValue.textContent = '分析失敗';
+                }
+                if (indicatorText) {
+                    indicatorText.textContent = '尚未啟動';
+                }
+                setIndicatorState(null);
+                throw error;
+            }
+        }
+
+        function stopRealtimeAnalysis() {
+            if (vitalLensJS) {
+                try {
+                    vitalLensJS.stopVideoStream();
+                } catch (error) {
+                    console.warn('Failed to stop VitalLens stream:', error);
+                }
+            }
+
+            resetRealtimeStatus();
+            isRealtimeActive = false;
+
+            if (faceDetectionInfo) {
+                faceDetectionInfo.classList.add('hidden');
+            }
+
+            if (indicatorText) {
+                indicatorText.textContent = '尚未啟動';
+            }
+
+            if (hrValue) {
+                hrValue.textContent = '-- BPM';
+            }
+
+            const hrConfidence = document.getElementById('hr-confidence');
+            if (hrConfidence) {
+                hrConfidence.textContent = '';
+            }
+
+            setRealtimeControlsState(false);
+        }
 
         function setRecordingState(isRecording) {
             isRecordingActive = isRecording;
@@ -511,15 +963,7 @@
             if (data.results && data.results.length > 0) {
                 let resultsHtml = '';
                 data.results.forEach(result => {
-                    resultsHtml += `
-                        <div class="result-item">
-                            <h3>${result.display_name || 'Webcam Recording'}</h3>
-                            <p><strong>狀態:</strong> ${result.status}</p>
-                            ${result.summary ? `<p><strong>摘要:</strong> ${result.summary}</p>` : ''}
-                            ${result.result_text ? `<pre class="result-text">${result.result_text}</pre>` : ''}
-                            ${result.plot_image ? `<img src="data:image/png;base64,${result.plot_image}" class="plot" alt="分析圖表">` : ''}
-                        </div>
-                    `;
+                    resultsHtml += formatResultItem(result);
                 });
                 webcamResults.innerHTML = resultsHtml;
             } else {
@@ -527,7 +971,284 @@
             }
         }
 
+        function formatResultItem(result) {
+            const formattedText = result.result_text ? formatResultText(result.result_text) : '';
+
+            return `
+                <div class="result-item">
+                    <h3>${result.display_name || 'Webcam Recording'}</h3>
+                    ${formattedText}
+                    ${result.plot_image ? `<img src="data:image/png;base64,${result.plot_image}" class="plot" alt="分析圖表">` : ''}
+                </div>
+            `;
+        }
+
+        function formatResultText(rawText) {
+            if (!rawText) return '';
+
+            const lines = rawText.split('\n').filter(line => line.trim());
+
+            // 解析數據
+            const data = {
+                heartRate: null,
+                heartRateConfidence: null,
+                respiratoryRate: null,
+                faceInfo: null,
+                ppgWaveform: null,
+                notes: [],
+                otherInfo: []
+            };
+
+            lines.forEach((rawLine) => {
+                const line = String(rawLine || '').trim();
+                if (!line) {
+                    return;
+                }
+
+                if (line.indexOf('Heart Rate:') === 0) {
+                    const hrText = line.replace('Heart Rate: ', '').trim();
+                    // 解析數值並格式化為一位小數
+                    const match = hrText.match(/(\d+\.?\d*)/);
+                    if (match) {
+                        const value = parseFloat(match[1]);
+                        if (!Number.isNaN(value)) {
+                            const unit = hrText.replace(match[1], '').trim();
+                            data.heartRate = `${value.toFixed(1)} ${unit}`;
+                        } else {
+                            data.heartRate = hrText;
+                        }
+                    } else {
+                        data.heartRate = hrText;
+                    }
+                } else if (line.indexOf('HR Confidence:') === 0) {
+                    const confidence = parseFloat(line.replace('HR Confidence: ', ''));
+                    if (!Number.isNaN(confidence) && confidence < 1.0) {
+                        data.heartRateConfidence = confidence;
+                    }
+                } else if (line.indexOf('Respiratory Rate:') === 0) {
+                    const rrText = line.replace('Respiratory Rate: ', '').trim();
+                    // 解析數值並格式化為一位小數
+                    const match = rrText.match(/(\d+\.?\d*)/);
+                    if (match) {
+                        const value = parseFloat(match[1]);
+                        if (!Number.isNaN(value)) {
+                            const unit = rrText.replace(match[1], '').trim();
+                            data.respiratoryRate = `${value.toFixed(1)} ${unit}`;
+                        } else {
+                            data.respiratoryRate = rrText;
+                        }
+                    } else {
+                        data.respiratoryRate = rrText;
+                    }
+                } else if (line.indexOf('Face Confidence:') === 0) {
+                    const potential = line.replace('Face Confidence: ', '').trim();
+                    if (potential && potential.toLowerCase().indexOf('face detection coordinates') === -1) {
+                        data.faceInfo = potential;
+                    }
+                } else if (line.indexOf('PPG Waveform:') === 0) {
+                    data.ppgWaveform = line.replace('PPG Waveform: ', '');
+                } else if (line.indexOf('Note:') === 0) {
+                    const note = line.replace('Note: ', '');
+                    if (!note.includes('not capable of providing a confidence estimate') && !note.includes('hence returning 1')) {
+                        data.notes.push(note);
+                    }
+                } else if (line.includes(':') && line.indexOf('System Message:') !== 0) {
+                    const [key, value] = line.split(':').map(s => s.trim());
+                    if (value && !key.match(/^(Heart Rate|HR Confidence|Respiratory Rate|Face Confidence|PPG Waveform|Note)$/)) {
+                        data.otherInfo.push({ key, value });
+                    }
+                }
+            });
+
+            let html = '';
+
+            // 生命徵象表格
+            if (data.heartRate || data.respiratoryRate) {
+                html += `
+                    <div class="vital-signs-table">
+                        <h4>🫀 生命徵象</h4>
+                        <table class="vital-table">
+                            <thead>
+                                <tr>
+                                    <th>項目</th>
+                                    <th>數值</th>
+                                    <th>信心度</th>
+                                    <th>備註</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+
+                if (data.heartRate) {
+                    const confidenceText = data.heartRateConfidence
+                        ? `${Math.round(data.heartRateConfidence * 100)}%`
+                        : '—';
+                    const confidenceClass = data.heartRateConfidence
+                        ? (data.heartRateConfidence > 0.8 ? 'high' : data.heartRateConfidence > 0.6 ? 'medium' : 'low')
+                        : '';
+
+                    html += `
+                        <tr>
+                            <td>❤️ 心率</td>
+                            <td class="vital-value">${data.heartRate}</td>
+                            <td class="confidence-${confidenceClass}">${confidenceText}</td>
+                            <td>正常範圍 60-100 BPM</td>
+                        </tr>`;
+                }
+
+                if (data.respiratoryRate) {
+                    html += `
+                        <tr>
+                            <td>🫁 呼吸率</td>
+                            <td class="vital-value">${data.respiratoryRate}</td>
+                            <td>—</td>
+                            <td>正常範圍 12-20 RPM</td>
+                        </tr>`;
+                }
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>`;
+            }
+
+            // 波形摘要
+            if (data.ppgWaveform) {
+                html += `
+                    <div class="ppg-summary">
+                        <span class="ppg-label">📈 PPG 波形資料</span>
+                        <span class="ppg-value">${data.ppgWaveform}</span>
+                    </div>`;
+            }
+
+            // 臉部分析
+            if (data.faceInfo) {
+                html += `
+                    <div class="face-analysis">
+                        <h4>👤 臉部分析</h4>
+                        <p>${data.faceInfo}</p>
+                    </div>`;
+            }
+
+            // 進階資訊（折疊區）
+            const hasAdvancedInfo = data.notes.length > 0 || data.otherInfo.length > 0;
+            if (hasAdvancedInfo) {
+                html += `
+                    <div class="advanced-info">
+                        <details>
+                            <summary>🔍 進階資訊</summary>
+                            <div class="advanced-content">`;
+
+                if (data.notes.length > 0) {
+                    html += `
+                        <div class="notes-section">
+                            <h5>ℹ️ 分析說明</h5>
+                            ${data.notes.map(note => `<p class="note-item">${note}</p>`).join('')}
+                        </div>`;
+                }
+
+                if (data.otherInfo.length > 0) {
+                    html += `
+                        <div class="other-info">
+                            <h5>📊 其他資訊</h5>
+                            ${data.otherInfo.map(info => `<div class="info-row"><span class="info-key">${info.key}:</span> <span class="info-value">${info.value}</span></div>`).join('')}
+                        </div>`;
+                }
+
+                html += `
+                            </div>
+                        </details>
+                    </div>`;
+            }
+
+            return html ? `<div class="formatted-results">${html}</div>` : '';
+        }
+
+        async function processFrontendRecording(videoBlob, mimeType, method, apiKey) {
+            const jsMethod = method.replace('js-', '');
+            const normalizedKey = persistApiKey(apiKey);
+
+            if (jsMethod.startsWith('vitallens') && !normalizedKey) {
+                throw new Error('使用 VitalLens 方法時需要提供 API Key');
+            }
+
+            updateWebcamStatus('錄影完成，正在進行前端分析...');
+
+            const VitalLensCtor = await loadVitalLensConstructor();
+            const analyzer = new VitalLensCtor({
+                method: jsMethod,
+                apiKey: normalizedKey || undefined,
+            });
+
+            try {
+                const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                const fileForProcessing = new File([videoBlob], `webcam-recording.${extension}`, {
+                    type: mimeType,
+                    lastModified: Date.now(),
+                });
+
+                const result = await analyzer.processVideoFile(fileForProcessing);
+                renderFrontendResult(result, jsMethod);
+                updateWebcamStatus('前端分析完成！');
+            } finally {
+                if (typeof analyzer.close === 'function') {
+                    try {
+                        await analyzer.close();
+                    } catch (closeError) {
+                        console.warn('關閉 VitalLens 分析器時發生問題:', closeError);
+                    }
+                }
+            }
+        }
+
+        function renderFrontendResult(result, method) {
+            if (!webcamResults) {
+                return;
+            }
+
+            const displayName = method.toUpperCase();
+            const vitalSigns = result?.vital_signs || {};
+            const heartRate = vitalSigns.heart_rate;
+            const respiratoryRate = vitalSigns.respiratory_rate;
+            const message = result?.message;
+
+            const heartRateText = heartRate && typeof heartRate.value === 'number'
+                ? `${heartRate.value.toFixed(1)} ${heartRate.unit || 'BPM'}`
+                : '無資料';
+
+            const heartConfidence = heartRate && typeof heartRate.confidence === 'number'
+                ? `${Math.round((heartRate.confidence > 1 ? heartRate.confidence : heartRate.confidence * 100))}%`
+                : '—';
+
+            const respText = respiratoryRate && typeof respiratoryRate.value === 'number'
+                ? `${respiratoryRate.value.toFixed(1)} ${respiratoryRate.unit || 'RPM'}`
+                : '無資料';
+
+            const summaryRows = [
+                `<p><strong>心率:</strong> ${heartRateText} <span class="hr-confidence">${heartConfidence}</span></p>`,
+                `<p><strong>呼吸率:</strong> ${respText}</p>`,
+            ];
+
+            if (message) {
+                summaryRows.push(`<p><strong>訊息:</strong> ${message}</p>`);
+            }
+
+            const resultHtml = `
+                <div class="result-item">
+                    <h3>前端分析結果 (${displayName})</h3>
+                    <p><strong>狀態:</strong> 分析完成</p>
+                    ${summaryRows.join('')}
+                    <p><strong>分析時間:</strong> ${new Date().toLocaleTimeString()}</p>
+                </div>
+            `;
+
+            webcamResults.innerHTML = resultHtml;
+        }
+
         async function startWebcamRecording() {
+            if (currentMode !== MODE_RECORD) {
+                return;
+            }
+
             try {
                 await ensureWebcamPreview();
             } catch (error) {
@@ -538,11 +1259,13 @@
             clearWebcamResults();
 
             const method = document.getElementById('webcam-method').value;
-            const apiKey = document.getElementById('webcam-api-key').value || '';
+            const apiKey = persistApiKey(webcamApiInput ? webcamApiInput.value : (document.getElementById('webcam-api-key').value || ''));
             const durationInput = document.getElementById('recording-duration').value;
             const duration = Number.parseInt(durationInput, 10) || 15;
 
             setRecordingState(true);
+            const isFrontendMethod = method.startsWith('js-');
+
             updateWebcamStatus(`正在錄影 ${duration} 秒，請保持臉部穩定。`);
 
             try {
@@ -573,29 +1296,33 @@
                         // 建立影片 blob
                         const videoBlob = new Blob(recordedChunks, { type: mimeType });
 
-                        updateWebcamStatus('錄影完成，正在上傳並處理...');
+                        if (isFrontendMethod) {
+                            await processFrontendRecording(videoBlob, mimeType, method, apiKey);
+                        } else {
+                            updateWebcamStatus('錄影完成，正在上傳並處理...');
 
-                        // 上傳並處理影片
-                        const formData = new FormData();
-                        const extension = mimeType.includes('mp4') ? '.mp4' : '.webm';
-                        formData.append('video', videoBlob, `webcam-recording${extension}`);
-                        formData.append('method', method);
-                        formData.append('api_key', apiKey);
+                            // 上傳並處理影片
+                            const formData = new FormData();
+                            const extension = mimeType.includes('mp4') ? '.mp4' : '.webm';
+                            formData.append('video', videoBlob, `webcam-recording${extension}`);
+                            formData.append('method', method);
+                            formData.append('api_key', apiKey);
 
-                        const response = await fetch('/api/process-video', {
-                            method: 'POST',
-                            body: formData,
-                        });
+                            const response = await fetch('/api/process-video', {
+                                method: 'POST',
+                                body: formData,
+                            });
 
-                        const result = await response.json();
+                            const result = await response.json();
 
-                        if (!response.ok) {
-                            throw new Error(result.detail || '影片處理失敗');
+                            if (!response.ok) {
+                                throw new Error(result.detail || '影片處理失敗');
+                            }
+
+                            // 顯示結果
+                            displayWebcamResults(result);
+                            updateWebcamStatus('處理完成！');
                         }
-
-                        // 顯示結果
-                        displayWebcamResults(result);
-                        updateWebcamStatus('處理完成！');
 
                     } catch (error) {
                         console.error('Processing error:', error);
@@ -640,6 +1367,10 @@
         }
 
         async function checkRecordingStatus() {
+            if (currentMode !== MODE_RECORD) {
+                return;
+            }
+
             try {
                 const response = await fetch('/api/webcam/status');
                 if (!response.ok) {
@@ -685,33 +1416,59 @@
         }
 
         function setupWebcamInteractions() {
-            if (!startRecordingBtn || !stopRecordingBtn) {
-                return;
+            if (startRecordingBtn) {
+                startRecordingBtn.addEventListener('click', async (event) => {
+                    event.preventDefault();
+                    await setAnalysisMode(MODE_RECORD);
+                    await startWebcamRecording();
+                });
             }
 
-            startRecordingBtn.addEventListener('click', async (event) => {
-                event.preventDefault();
-                await startWebcamRecording();
-            });
+            if (stopRecordingBtn) {
+                stopRecordingBtn.addEventListener('click', async (event) => {
+                    event.preventDefault();
+                    await stopWebcamRecording();
+                });
+            }
 
-            stopRecordingBtn.addEventListener('click', async (event) => {
-                event.preventDefault();
-                await stopWebcamRecording();
-            });
+            if (startRealtimeBtn) {
+                startRealtimeBtn.addEventListener('click', async (event) => {
+                    event.preventDefault();
+                    await setAnalysisMode(MODE_REALTIME);
+                    await handleStartRealtime();
+                });
+            }
 
-            webcamPreview.addEventListener('loadedmetadata', () => {
-                adjustOverlaySize();
-                startFaceDetectionPreview();
-            });
+            if (stopRealtimeBtn) {
+                stopRealtimeBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    handleStopRealtime();
+                });
+            }
 
-            webcamPreview.addEventListener('play', () => {
-                adjustOverlaySize();
-                startFaceDetectionPreview();
-            });
+            if (modeTabs.length) {
+                modeTabs.forEach((tab) => {
+                    tab.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        setAnalysisMode(tab.dataset.modeTab).catch((error) => console.error(error));
+                    });
+                });
+            }
 
-            window.addEventListener('resize', adjustOverlaySize);
+            const showDetectionInfo = () => {
+                if (faceDetectionInfo && currentMode === MODE_REALTIME) {
+                    faceDetectionInfo.classList.remove('hidden');
+                }
+            };
+
+            webcamPreview.addEventListener('loadedmetadata', showDetectionInfo);
+            webcamPreview.addEventListener('play', showDetectionInfo);
 
             const tryInitialisePreview = () => {
+                if (currentMode === MODE_UPLOAD) {
+                    return;
+                }
+
                 if (!mediaStream) {
                     ensureWebcamPreview().catch((error) => {
                         console.warn('無法啟動攝影機預覽:', error);
@@ -720,7 +1477,6 @@
                 }
             };
 
-            // 自動啟動攝影機預覽
             setTimeout(tryInitialisePreview, 500);
 
             webcamPreview.addEventListener('click', tryInitialisePreview);
@@ -729,6 +1485,32 @@
                     tryInitialisePreview();
                 }
             });
+
+            const fileMethodSelect = document.getElementById('file-method');
+
+            if (fileMethodSelect) {
+                fileMethodSelect.addEventListener('change', updateFileApiKeyVisibility);
+            }
+
+            if (webcamMethodSelect) {
+                webcamMethodSelect.addEventListener('change', () => {
+                    updateApiKeyVisibility();
+                });
+            }
+
+            if (realtimeMethodSelect) {
+                realtimeMethodSelect.addEventListener('change', () => {
+                    if (isRealtimeActive) {
+                        handleStopRealtime();
+                    }
+                    updateApiKeyVisibility();
+                });
+            }
+
+            setRealtimeControlsState(false);
+            updateFileApiKeyVisibility();
+            updateApiKeyVisibility();
+            setAnalysisMode(MODE_UPLOAD).catch((error) => console.error(error));
         }
 
         function connectStatusSocket() {
@@ -783,15 +1565,7 @@
                 if (fileResults && data.results && data.results.length > 0) {
                     let resultsHtml = '';
                     data.results.forEach(result => {
-                        resultsHtml += `
-                            <div class="result-item">
-                                <h3>${result.display_name || result.file_name}</h3>
-                                <p><strong>狀態:</strong> ${result.status}</p>
-                                ${result.summary ? `<p><strong>摘要:</strong> ${result.summary}</p>` : ''}
-                                ${result.result_text ? `<pre class="result-text">${result.result_text}</pre>` : ''}
-                                ${result.plot_image ? `<img src="data:image/png;base64,${result.plot_image}" class="plot" alt="分析圖表">` : ''}
-                            </div>
-                        `;
+                        resultsHtml += formatResultItem(result);
                     });
                     fileResults.innerHTML = resultsHtml;
                 } else {
@@ -805,6 +1579,8 @@
             } catch (error) {
                 fileStatus.textContent = error.message || '處理時發生錯誤';
                 uploadProgress.style.display = 'none';
+            } finally {
+                clearInterval(uploadProgressTimer);
             }
         });
 
@@ -814,11 +1590,12 @@
             const progressPercentage = uploadProgress.querySelector('.progress-percentage');
 
             let progress = 0;
-            const interval = setInterval(() => {
+            clearInterval(uploadProgressTimer);
+            uploadProgressTimer = setInterval(() => {
                 progress += Math.random() * 15;
                 if (progress >= 90) {
                     progress = 90;
-                    clearInterval(interval);
+                    clearInterval(uploadProgressTimer);
                 }
                 progressFill.style.width = progress + '%';
                 progressPercentage.textContent = Math.round(progress) + '%';
@@ -839,11 +1616,19 @@
 
                         if (percentComplete >= 100) {
                             fileStatus.textContent = '上傳完成，正在分析...';
+                            clearInterval(uploadProgressTimer);
+                            progressFill.style.width = '100%';
+                            progressPercentage.textContent = '100%';
                         }
                     }
                 });
 
                 xhr.addEventListener('load', () => {
+                    clearInterval(uploadProgressTimer);
+                    const progressFill = uploadProgress.querySelector('.progress-fill');
+                    const progressPercentage = uploadProgress.querySelector('.progress-percentage');
+                    progressFill.style.width = '100%';
+                    progressPercentage.textContent = '100%';
                     resolve({
                         ok: xhr.status >= 200 && xhr.status < 300,
                         status: xhr.status,
@@ -852,6 +1637,7 @@
                 });
 
                 xhr.addEventListener('error', () => {
+                    clearInterval(uploadProgressTimer);
                     reject(new Error('上傳失敗'));
                 });
 
